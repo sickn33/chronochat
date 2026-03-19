@@ -21,4 +21,21 @@ describe("Build and style contracts", () => {
     );
     expect(packageJson.scripts["build:style"]).toContain("build-style.js");
   });
+
+  test("manifest icon files exist", () => {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.resolve(process.cwd(), "manifest.json"), "utf8"),
+    );
+    const iconPaths = [
+      ...Object.values(manifest.icons || {}),
+      ...Object.values(manifest.action?.default_icon || {}),
+    ];
+
+    expect(iconPaths.length).toBeGreaterThan(0);
+    iconPaths.forEach((iconPath) => {
+      expect(
+        fs.existsSync(path.resolve(process.cwd(), iconPath)),
+      ).toBe(true);
+    });
+  });
 });

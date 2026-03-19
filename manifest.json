@@ -5,6 +5,12 @@
   "description": "Navigate long ChatGPT conversations with clarity. Includes search, filters, keyboard shortcuts, and fast jump navigation.",
   "author": "ChronoChat",
   "homepage_url": "https://github.com/sickn33/chronochat",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
   "host_permissions": [
     "https://chat.openai.com/*",
     "https://chatgpt.com/*"
@@ -24,7 +30,13 @@
     "service_worker": "service_worker.js"
   },
   "action": {
-    "default_title": "ChronoChat"
+    "default_title": "ChronoChat",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    }
   },
   "commands": {
     "toggle-sidebar": {
