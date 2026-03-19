@@ -1,0 +1,528 @@
+/*
+ * ChronoChat source stylesheet.
+ * Generated to /style.css during build.
+ */
+
+#chatgpt-nav-toggle,
+#chatgpt-nav-sidebar,
+#chatgpt-nav-sidebar * {
+  box-sizing: border-box !important;
+}
+
+#chatgpt-nav-toggle {
+  position: fixed !important;
+  top: 96px !important;
+  right: 18px !important;
+  z-index: 10001 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 68px !important;
+  height: 34px !important;
+  padding: 0 14px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(23, 23, 23, 0.92) !important;
+  color: #ececec !important;
+  font: 500 12px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif !important;
+  letter-spacing: 0.01em !important;
+  cursor: pointer !important;
+  backdrop-filter: blur(16px) !important;
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease !important;
+}
+
+#chatgpt-nav-toggle:hover {
+  transform: translateY(-1px) !important;
+  background: rgba(36, 36, 36, 0.96) !important;
+}
+
+#chatgpt-nav-toggle.active {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateX(18px) !important;
+}
+
+#chatgpt-nav-toggle.theme-light {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #171717 !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+#chatgpt-nav-sidebar {
+  position: fixed !important;
+  inset: 0 0 0 auto !important;
+  width: 336px !important;
+  height: 100vh !important;
+  z-index: 10000 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(33, 33, 33, 0.94) !important;
+  color: #ececec !important;
+  backdrop-filter: blur(20px) !important;
+  transform: translateX(100%) !important;
+  transition: transform 0.18s ease !important;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif !important;
+  overflow: hidden !important;
+}
+
+#chatgpt-nav-sidebar.open {
+  transform: translateX(0) !important;
+}
+
+#chatgpt-nav-sidebar.theme-light {
+  background: rgba(33, 33, 33, 0.94) !important;
+  color: #111827 !important;
+  border-left-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+.jtch-header {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 16px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-light .jtch-header {
+  border-bottom-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+.jtch-title-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 10px !important;
+  align-items: center !important;
+}
+
+.jtch-title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: inherit !important;
+  min-width: 0 !important;
+}
+
+.jtch-count {
+  justify-self: end !important;
+  font-size: 12px !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.theme-light .jtch-count {
+  color: rgba(15, 23, 42, 0.56) !important;
+}
+
+.jtch-header-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  justify-self: stretch !important;
+  grid-column: 1 / -1 !important;
+  min-width: 0 !important;
+}
+
+.jtch-icon-button,
+.jtch-filter,
+.jtch-search-toggle,
+.jtch-search-clear,
+.jtch-export-option,
+.jtch-export-option {
+  appearance: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: inherit !important;
+  cursor: pointer !important;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease !important;
+  font: 500 12px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif !important;
+}
+
+.theme-light .jtch-icon-button,
+.theme-light .jtch-filter,
+.theme-light .jtch-search-toggle,
+.theme-light .jtch-search-clear,
+.theme-light .jtch-export-option {
+  border-color: rgba(15, 23, 42, 0.08) !important;
+  background: rgba(15, 23, 42, 0.04) !important;
+}
+
+.jtch-icon-button:hover,
+.jtch-filter:hover,
+.jtch-search-toggle:hover,
+.jtch-search-clear:hover,
+.jtch-export-option:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  transform: translateY(-1px) !important;
+}
+
+.theme-light .jtch-icon-button:hover,
+.theme-light .jtch-filter:hover,
+.theme-light .jtch-search-toggle:hover,
+.theme-light .jtch-search-clear:hover,
+.theme-light .jtch-export-option:hover {
+  background: rgba(15, 23, 42, 0.08) !important;
+}
+
+.jtch-icon-button {
+  min-width: 56px !important;
+  height: 30px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+}
+
+.jtch-export-menu {
+  position: absolute !important;
+  top: 52px !important;
+  right: 16px !important;
+  display: grid !important;
+  gap: 8px !important;
+  padding: 10px !important;
+  width: 112px !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(28, 28, 28, 0.98) !important;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28) !important;
+}
+
+.theme-light .jtch-export-menu {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12) !important;
+}
+
+.jtch-export-menu.hidden,
+.jtch-status.hidden,
+.jtch-section.hidden {
+  display: none !important;
+}
+
+.jtch-export-option {
+  width: 100% !important;
+  height: 30px !important;
+  border-radius: 10px !important;
+}
+
+.jtch-filter-group {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+}
+
+.jtch-filter {
+  height: 32px !important;
+  border-radius: 999px !important;
+}
+
+.jtch-filter.active,
+.jtch-search-toggle.active {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: #f3f4f6 !important;
+}
+
+.theme-light .jtch-filter.active,
+.theme-light .jtch-search-toggle.active {
+  background: rgba(15, 23, 42, 0.06) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  color: #111827 !important;
+}
+
+.jtch-search-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto auto auto !important;
+  gap: 8px !important;
+}
+
+.jtch-search-input,
+#pref-preview-len {
+  width: 100% !important;
+  height: 34px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  color: inherit !important;
+  padding: 0 12px !important;
+  font: 500 12px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif !important;
+  outline: none !important;
+}
+
+.theme-light .jtch-search-input,
+.theme-light #pref-preview-len {
+  border-color: rgba(15, 23, 42, 0.08) !important;
+  background: rgba(15, 23, 42, 0.03) !important;
+}
+
+.jtch-search-input:focus,
+#pref-preview-len:focus {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-light .jtch-search-input:focus,
+.theme-light #pref-preview-len:focus {
+  border-color: rgba(15, 23, 42, 0.16) !important;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08) !important;
+}
+
+.jtch-search-toggle,
+.jtch-search-clear {
+  min-width: 38px !important;
+  height: 34px !important;
+  padding: 0 10px !important;
+  border-radius: 12px !important;
+}
+
+.jtch-search-meta {
+  min-height: 18px !important;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+  color: rgba(255, 255, 255, 0.62) !important;
+}
+
+.jtch-search-meta.error {
+  color: #fca5a5 !important;
+}
+
+.theme-light .jtch-search-meta {
+  color: rgba(15, 23, 42, 0.56) !important;
+}
+
+.theme-light .jtch-search-meta.error {
+  color: #b91c1c !important;
+}
+
+.jtch-prefs {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+}
+
+.jtch-pref {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: 12px !important;
+  color: inherit !important;
+}
+
+.jtch-pref-select {
+  gap: 8px !important;
+}
+
+.jtch-status {
+  display: block !important;
+  padding: 10px 12px !important;
+  border-radius: 12px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+.jtch-status-info {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.jtch-status-success {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: inherit !important;
+}
+
+.theme-light .jtch-status-success {
+  background: rgba(15, 23, 42, 0.06) !important;
+}
+
+.jtch-status-warning {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fef3c7 !important;
+}
+
+.jtch-section {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+}
+
+.jtch-message-section {
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+}
+
+.jtch-section-label {
+  padding: 12px 16px 6px !important;
+  font-size: 11px !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: rgba(255, 255, 255, 0.52) !important;
+}
+
+.theme-light .jtch-section-label {
+  color: rgba(15, 23, 42, 0.5) !important;
+}
+
+.jtch-list {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 8px !important;
+  overflow-y: auto !important;
+}
+
+.jtch-item,
+.jtch-load-older,
+.jtch-empty {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  gap: 10px !important;
+  align-items: center !important;
+  min-height: 54px !important;
+  margin: 0 0 8px !important;
+  padding: 12px !important;
+  border-radius: 16px !important;
+  border: 1px solid transparent !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  color: inherit !important;
+  cursor: pointer !important;
+}
+
+.theme-light .jtch-item,
+.theme-light .jtch-load-older,
+.theme-light .jtch-empty {
+  background: rgba(15, 23, 42, 0.03) !important;
+}
+
+.jtch-item:hover,
+.jtch-load-older:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-light .jtch-item:hover,
+.theme-light .jtch-load-older:hover {
+  background: rgba(15, 23, 42, 0.06) !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+.jtch-item.selected {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-light .jtch-item.selected {
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  background: rgba(15, 23, 42, 0.06) !important;
+}
+
+.jtch-role-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 36px !important;
+  height: 28px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: inherit !important;
+}
+
+.role-user .jtch-role-badge {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #f3f4f6 !important;
+}
+
+.role-assistant .jtch-role-badge {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #d4d4d8 !important;
+}
+
+.theme-light .role-user .jtch-role-badge {
+  background: rgba(15, 23, 42, 0.08) !important;
+  color: #111827 !important;
+}
+
+.theme-light .role-assistant .jtch-role-badge {
+  background: rgba(15, 23, 42, 0.05) !important;
+  color: rgba(15, 23, 42, 0.78) !important;
+}
+
+.jtch-item-text {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+
+.jtch-empty {
+  display: block !important;
+  cursor: default !important;
+  color: rgba(255, 255, 255, 0.62) !important;
+}
+
+.theme-light .jtch-empty {
+  color: rgba(15, 23, 42, 0.58) !important;
+}
+
+.jtch-load-older {
+  text-align: center !important;
+  justify-content: center !important;
+  grid-template-columns: 1fr !important;
+}
+
+.jtch-resize-handle {
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 8px !important;
+  height: 100% !important;
+  cursor: ew-resize !important;
+}
+
+.jtch-resizing * {
+  user-select: none !important;
+}
+
+.jtch-sidebar.compact .jtch-item,
+.jtch-list.compact .jtch-item {
+  min-height: 46px !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+.jtch-target-highlight {
+  animation: jtchPulse 0.9s ease !important;
+}
+
+@keyframes jtchPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.18);
+  }
+  100% {
+    box-shadow: 0 0 0 18px rgba(255, 255, 255, 0);
+  }
+}
+
+@media (max-width: 780px) {
+  #chatgpt-nav-sidebar {
+    width: min(92vw, 360px) !important;
+  }
+
+  #chatgpt-nav-toggle {
+    top: auto !important;
+    bottom: 18px !important;
+    right: 18px !important;
+  }
+}

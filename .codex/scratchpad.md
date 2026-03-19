@@ -1,0 +1,1 @@
+../.gemini/scratchpad.md
