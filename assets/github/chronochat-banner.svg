@@ -1,0 +1,29 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="640" fill="#111111"/>
+  <circle cx="1090" cy="120" r="210" fill="#1B1B1B"/>
+  <circle cx="151" cy="556" r="240" fill="#181818"/>
+  <rect x="56" y="56" width="1168" height="528" rx="36" fill="#171717" stroke="#FFFFFF" stroke-opacity="0.08"/>
+  <text x="104" y="182" fill="#F5F5F5" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700">ChronoChat</text>
+  <text x="104" y="238" fill="#B4B4B4" font-family="Arial, Helvetica, sans-serif" font-size="28">Navigate long ChatGPT conversations with clarity.</text>
+  <g opacity="0.96">
+    <rect x="706" y="96" width="432" height="448" rx="28" fill="#212121" stroke="#FFFFFF" stroke-opacity="0.08"/>
+    <rect x="738" y="128" width="188" height="28" rx="14" fill="#2A2A2A"/>
+    <rect x="944" y="128" width="72" height="28" rx="14" fill="#2F2F2F"/>
+    <rect x="1028" y="128" width="78" height="28" rx="14" fill="#2F2F2F"/>
+    <rect x="738" y="182" width="114" height="38" rx="19" fill="#2A2A2A"/>
+    <rect x="864" y="182" width="114" height="38" rx="19" fill="#2A2A2A"/>
+    <rect x="990" y="182" width="114" height="38" rx="19" fill="#2A2A2A"/>
+    <rect x="738" y="246" width="366" height="44" rx="22" fill="#1A1A1A" stroke="#FFFFFF" stroke-opacity="0.08"/>
+    <rect x="738" y="328" width="366" height="60" rx="24" fill="#1B1B1B" stroke="#FFFFFF" stroke-opacity="0.06"/>
+    <rect x="758" y="344" width="56" height="28" rx="14" fill="#323232"/>
+    <rect x="832" y="351" width="196" height="14" rx="7" fill="#5A5A5A"/>
+    <rect x="738" y="402" width="366" height="60" rx="24" fill="#1B1B1B" stroke="#FFFFFF" stroke-opacity="0.06"/>
+    <rect x="758" y="418" width="56" height="28" rx="14" fill="#2C2C2C"/>
+    <rect x="832" y="425" width="220" height="14" rx="7" fill="#616161"/>
+  </g>
+  <text x="104" y="346" fill="#F3F4F6" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700">What it adds</text>
+  <text x="104" y="392" fill="#D4D4D4" font-family="Arial, Helvetica, sans-serif" font-size="24">Fast conversation map</text>
+  <text x="104" y="432" fill="#D4D4D4" font-family="Arial, Helvetica, sans-serif" font-size="24">Search, filters, and keyboard navigation</text>
+  <text x="104" y="472" fill="#D4D4D4" font-family="Arial, Helvetica, sans-serif" font-size="24">Native-feeling UI aligned with ChatGPT</text>
+  <text x="104" y="512" fill="#D4D4D4" font-family="Arial, Helvetica, sans-serif" font-size="24">Private by default, fully local</text>
+</svg>
