@@ -21,6 +21,7 @@
     "build:minify": "npm run build:minify:js && npm run build:minify:css",
     "build:minify:js": "terser content_script.js -o content_script.min.js --compress --mangle",
     "build:minify:css": "cleancss -o style.min.css style.css",
+    "package:extension": "bash scripts/package-extension.sh",
     "validate": "npm test -- --runInBand && npm run build",
     "prebuild": "echo 'Building production assets...'",
     "postbuild": "echo 'Build complete! Minified files ready.'"
