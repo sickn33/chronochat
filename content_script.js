@@ -32,8 +32,6 @@
 
   ns.config = {
     sidebarWidth: 336,
-    sidebarMinWidth: 280,
-    sidebarMaxWidth: 520,
     debounceDelay: 220,
     observerRetryDelay: 1500,
     highlightDuration: 900,
@@ -41,14 +39,12 @@
     virtualListThreshold: 80,
     virtualListPageSize: 60,
     maxPreviewLength: 160,
+    hostUiSyncDelay: 80,
+    hostUiOpenDelay: root.__CHRONOCHAT_TEST__ ? 0 : 160,
   };
 
   ns.constants = {
-    storage: {
-      prefs: "jtch_v2_prefs",
-      theme: "jtch_v2_theme",
-      sidebarWidth: "jtch_v2_sidebar_width",
-    },
+    storage: {},
     filters: ["all", "user", "assistant"],
     primaryMessageSelectors: [
       "div[data-message-author-role]",
@@ -66,6 +62,18 @@
       ".conversation-content",
       "div[class*='--thread-content-margin'][class*='px-(--thread-content-margin)']",
       "div.flex-1[class*='max-w-(--thread-content-max-width)']",
+    ],
+    hostActionBarSelectors: [
+      '[data-testid="conversation-actions"]',
+      "[data-testid*='conversation'][data-testid*='actions']",
+      "header [class*='actions']",
+      "header [class*='toolbar']",
+      "header [class*='controls']",
+    ],
+    hostSidePanelSelectors: [
+      '[data-testid="activity-panel"]',
+      "[data-testid*='activity'][data-testid*='panel']",
+      "[data-panel='activity']",
     ],
     supportedHosts: ["chat.openai.com", "chatgpt.com"],
   };
@@ -138,19 +146,8 @@
       sidebarVisible: false,
       currentFilter: "all",
       selectedMessageIndex: -1,
-      sidebarWidth: ns.config.sidebarWidth,
-      compact: false,
-      previewLen: 120,
-      themePreference: "system-like",
-      effectiveTheme: "dark",
-      exportMenuVisible: false,
       search: {
         term: "",
-        isRegex: false,
-        caseSensitive: false,
-        lastError: null,
-        matcher: null,
-        lastValidMatcher: null,
         matchCount: 0,
       },
       virtualization: {
@@ -170,21 +167,16 @@
       lastUrl: root.location?.href || "",
       cleanupFns: [],
       refreshDebounced: null,
-      resizeFrame: null,
-      isResizing: false,
-      resizeStartX: 0,
-      resizeStartWidth: ns.config.sidebarWidth,
       hostThemeObserver: null,
+      hostUiObserver: null,
+      hostUiSync: null,
+      hostPanelOpen: false,
     },
   };
-
 })(globalThis);
 
 (function (root) {
   const ns = root.__JTC__;
-  const { clamp } = ns.utils;
-  const { storage: storageKeys } = ns.constants;
-  const fallbackStorage = root.localStorage;
 
   function getChromeStorageArea() {
     if (
@@ -198,117 +190,10 @@
     return null;
   }
 
-  function getFromFallback(key) {
-    try {
-      const raw = fallbackStorage.getItem(key);
-      return raw == null ? undefined : JSON.parse(raw);
-    } catch (_) {
-      return undefined;
-    }
-  }
-
-  function setToFallback(key, value) {
-    try {
-      fallbackStorage.setItem(key, JSON.stringify(value));
-    } catch (_) {}
-  }
-
-  function removeFromFallback(key) {
-    try {
-      fallbackStorage.removeItem(key);
-    } catch (_) {}
-  }
-
-  async function storageGet(keys) {
-    const area = getChromeStorageArea();
-    if (area) {
-      return new Promise((resolve) => {
-        area.get(keys, (result) => resolve(result || {}));
-      });
-    }
-
-    const result = {};
-    keys.forEach((key) => {
-      result[key] = getFromFallback(key);
-    });
-    return result;
-  }
-
-  async function storageSet(values) {
-    const area = getChromeStorageArea();
-    if (area) {
-      return new Promise((resolve) => {
-        area.set(values, () => resolve());
-      });
-    }
-
-    Object.entries(values).forEach(([key, value]) => {
-      if (value === undefined) {
-        removeFromFallback(key);
-      } else {
-        setToFallback(key, value);
-      }
-    });
-  }
-
-  function normalizeTheme(value) {
-    return ["dark", "light", "system-like"].includes(value)
-      ? value
-      : "system-like";
-  }
-
-  function normalizePrefs(value) {
-    const prefs = value && typeof value === "object" ? value : {};
-    return {
-      compact: Boolean(prefs.compact),
-      previewLen: clamp(
-        Number.isFinite(Number(prefs.previewLen))
-          ? Number(prefs.previewLen)
-          : 120,
-        80,
-        220,
-      ),
-    };
-  }
-
-  function normalizeWidth(value) {
-    return clamp(
-      Number.isFinite(Number(value)) ? Number(value) : ns.config.sidebarWidth,
-      ns.config.sidebarMinWidth,
-      ns.config.sidebarMaxWidth,
-    );
-  }
-
   ns.storage = {
     async load() {
-      const data = await storageGet(Object.values(storageKeys));
-      const prefs = normalizePrefs(data[storageKeys.prefs]);
-      ns.state.ui.compact = prefs.compact;
-      ns.state.ui.previewLen = prefs.previewLen;
-      ns.state.ui.themePreference = normalizeTheme(data[storageKeys.theme]);
-      ns.state.ui.sidebarWidth = normalizeWidth(data[storageKeys.sidebarWidth]);
+      return undefined;
     },
-    async persistPrefs() {
-      return storageSet({
-        [storageKeys.prefs]: {
-          compact: ns.state.ui.compact,
-          previewLen: ns.state.ui.previewLen,
-        },
-      });
-    },
-    async persistTheme() {
-      return storageSet({
-        [storageKeys.theme]: ns.state.ui.themePreference,
-      });
-    },
-    async persistSidebarWidth() {
-      return storageSet({
-        [storageKeys.sidebarWidth]: ns.state.ui.sidebarWidth,
-      });
-    },
-    normalizeTheme,
-    normalizePrefs,
-    normalizeWidth,
     getChromeStorageArea,
   };
 })(globalThis);
@@ -320,6 +205,8 @@
     primaryMessageSelectors,
     fallbackMessageSelectors,
     chatContainerSelectors,
+    hostActionBarSelectors,
+    hostSidePanelSelectors,
   } = ns.constants;
 
   function safeQuerySelector(selectors, context = document) {
@@ -375,8 +262,50 @@
     return style.display !== "none" && style.visibility !== "hidden";
   }
 
+  function collapseText(value) {
+    return String(value || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
   function hasMeaningfulText(element) {
     return collapseText(element?.textContent || "").length >= 8;
+  }
+
+  function isChronoChatNode(element) {
+    if (!element) return false;
+    if (
+      element.id === "chatgpt-nav-sidebar" ||
+      element.id === "chatgpt-nav-toggle" ||
+      element.id === "chatgpt-nav-toggle-slot"
+    ) {
+      return true;
+    }
+    return Boolean(
+      element.closest?.(
+        "#chatgpt-nav-sidebar, #chatgpt-nav-toggle, #chatgpt-nav-toggle-slot",
+      ),
+    );
+  }
+
+  function isInteractiveElement(element) {
+    return Boolean(
+      element?.matches?.("button, [role='button'], a, summary"),
+    );
+  }
+
+  function getElementLabel(element) {
+    if (!element) return "";
+    return collapseText(
+      element.getAttribute?.("aria-label") ||
+        element.getAttribute?.("title") ||
+        element.textContent ||
+        "",
+    );
+  }
+
+  function getInteractiveElements(context) {
+    return safeQuerySelectorAll("button, [role='button'], a, summary", context).filter(
+      (element) => isVisibleElement(element) && !isChronoChatNode(element),
+    );
   }
 
   function filterRootMessageCandidates(nodes) {
@@ -384,7 +313,7 @@
       (node) =>
         isVisibleElement(node) &&
         hasMeaningfulText(node) &&
-        !node.closest?.("#chatgpt-nav-sidebar"),
+        !isChronoChatNode(node),
     );
 
     return candidates.filter((node) => {
@@ -500,10 +429,6 @@
     return index % 2 === 0 ? "user" : "assistant";
   }
 
-  function collapseText(value) {
-    return String(value || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
-  }
-
   function isLikelyUiArtifact(node) {
     if (!node) return false;
     return Boolean(
@@ -567,8 +492,208 @@
     return null;
   }
 
+  function getConversationActionBar() {
+    const explicit = safeQuerySelector(hostActionBarSelectors, document);
+    if (explicit && isVisibleElement(explicit)) {
+      return explicit;
+    }
+
+    const markers = getInteractiveElements(document).filter((element) => {
+      const label = getElementLabel(element);
+      return /share|activity/i.test(label);
+    });
+
+    const candidates = [];
+    const seen = new Set();
+
+    markers.forEach((marker) => {
+      let current = marker.parentElement;
+      let depth = 0;
+      while (current && current !== document.body && depth < 6) {
+        if (!seen.has(current) && isVisibleElement(current)) {
+          const interactiveCount = getInteractiveElements(current).length;
+          if (interactiveCount >= 2 && interactiveCount <= 8) {
+            seen.add(current);
+            candidates.push({ node: current, interactiveCount, depth });
+          }
+        }
+        current = current.parentElement;
+        depth += 1;
+      }
+    });
+
+    candidates.sort((left, right) => {
+      if (left.depth !== right.depth) {
+        return left.depth - right.depth;
+      }
+      return left.interactiveCount - right.interactiveCount;
+    });
+
+    return candidates[0]?.node || null;
+  }
+
+  function getConversationActionReference(actionBar) {
+    const elements = getInteractiveElements(actionBar);
+    return (
+      elements.find((element) => /share/i.test(getElementLabel(element))) ||
+      elements.find((element) => /activity/i.test(getElementLabel(element))) ||
+      elements[elements.length - 1] ||
+      null
+    );
+  }
+
+  function getHostLeftRail() {
+    const viewportHeight =
+      root.innerHeight || document.documentElement.clientHeight || 720;
+
+    const candidates = safeQuerySelectorAll(["aside", "nav", "div"], document).filter(
+      (element) => {
+        if (!isVisibleElement(element) || isChronoChatNode(element)) {
+          return false;
+        }
+        const rect = element.getBoundingClientRect?.();
+        if (!rect || rect.width < 56 || rect.width > 220) {
+          return false;
+        }
+        if (rect.height < viewportHeight * 0.5) {
+          return false;
+        }
+        return rect.left <= 12 && rect.right > rect.left;
+      },
+    );
+
+    candidates.sort((left, right) => {
+      const leftRect = left.getBoundingClientRect();
+      const rightRect = right.getBoundingClientRect();
+      return rightRect.width * rightRect.height - leftRect.width * leftRect.height;
+    });
+
+    return candidates[0] || null;
+  }
+
+  function getHostActivityToggle(actionBar = getConversationActionBar()) {
+    if (!actionBar) return null;
+    return (
+      getInteractiveElements(actionBar).find((element) =>
+        /activity/i.test(getElementLabel(element)),
+      ) || null
+    );
+  }
+
+  function isLikelyHostSidePanelFrame(element, viewportWidth) {
+    if (!isVisibleElement(element) || isChronoChatNode(element)) {
+      return false;
+    }
+    const rect = element.getBoundingClientRect?.();
+    if (!rect || rect.width < 180 || rect.height < 160) {
+      return false;
+    }
+    const occupiesRightRail =
+      rect.right >= viewportWidth - 12 &&
+      (rect.left >= viewportWidth * 0.45 || rect.width >= viewportWidth * 0.55);
+    if (!occupiesRightRail) {
+      return false;
+    }
+    const text = collapseText(element.textContent || "");
+    return /activity|sources|thinking/i.test(text);
+  }
+
+  function resolveHostSidePanelFrame(panel, viewportWidth) {
+    let resolved = panel;
+    let current = panel?.parentElement || null;
+
+    while (current && current !== document.body) {
+      if (isLikelyHostSidePanelFrame(current, viewportWidth)) {
+        const currentRect = current.getBoundingClientRect();
+        const resolvedRect = resolved.getBoundingClientRect?.();
+        const currentArea = currentRect.width * currentRect.height;
+        const resolvedArea = resolvedRect
+          ? resolvedRect.width * resolvedRect.height
+          : 0;
+        const currentHasCloseControl = Boolean(
+          getInteractiveElements(current).find(isCloseControl),
+        );
+        const resolvedHasCloseControl = Boolean(
+          getInteractiveElements(resolved).find(isCloseControl),
+        );
+        if (
+          (currentHasCloseControl && !resolvedHasCloseControl) ||
+          currentArea >= resolvedArea
+        ) {
+          resolved = current;
+        }
+      }
+      current = current.parentElement;
+    }
+
+    return resolved;
+  }
+
+  function isCloseControl(element) {
+    const label = getElementLabel(element);
+    return /(^[x×]$|close|dismiss|chiudi)/i.test(label);
+  }
+
+  function getHostSidePanel() {
+    const viewportWidth =
+      root.innerWidth || document.documentElement.clientWidth || 1280;
+    const explicit = safeQuerySelector(hostSidePanelSelectors, document);
+    if (explicit && isVisibleElement(explicit) && !isChronoChatNode(explicit)) {
+      return resolveHostSidePanelFrame(explicit, viewportWidth);
+    }
+
+    const candidates = safeQuerySelectorAll(
+      ["aside", "[role='dialog']", "section", "div"],
+      document,
+    ).filter((element) => {
+      return isLikelyHostSidePanelFrame(element, viewportWidth);
+    });
+
+    candidates.sort((left, right) => {
+      const leftRect = left.getBoundingClientRect();
+      const rightRect = right.getBoundingClientRect();
+      return rightRect.width * rightRect.height - leftRect.width * leftRect.height;
+    });
+
+    return resolveHostSidePanelFrame(candidates[0] || null, viewportWidth);
+  }
+
+  function getHostSidePanelCloseButton(panel) {
+    return getInteractiveElements(panel).find(isCloseControl) || null;
+  }
+
+  function getHostLeftRailWidth() {
+    const viewportHeight =
+      root.innerHeight || document.documentElement.clientHeight || 720;
+
+    const candidates = safeQuerySelectorAll(
+      ["aside", "nav", "[role='navigation']", "div"],
+      document,
+    ).filter((element) => {
+      if (!isVisibleElement(element) || isChronoChatNode(element)) {
+        return false;
+      }
+
+      const rect = element.getBoundingClientRect?.();
+      if (!rect || rect.width < 48 || rect.width > 240 || rect.height < viewportHeight * 0.45) {
+        return false;
+      }
+
+      if (rect.left > 16 || rect.right > 260) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return candidates.reduce((maxRight, element) => {
+      const rect = element.getBoundingClientRect?.();
+      return rect ? Math.max(maxRight, Math.round(rect.right)) : maxRight;
+    }, 0);
+  }
+
   function collectMessages() {
-    let container = getChatContainer();
+    const container = getChatContainer();
     const primaryNodes = safeQuerySelectorAll(
       primaryMessageSelectors,
       container || document,
@@ -625,11 +750,23 @@
     collapseText,
     filterRootMessageCandidates,
     isLikelyUiArtifact,
+    getConversationActionBar,
+    getConversationActionReference,
+    getHostLeftRail,
+    getHostActivityToggle,
+    getHostSidePanel,
+    getHostSidePanelCloseButton,
+    getHostLeftRailWidth,
+    getElementLabel,
+    getInteractiveElements,
+    isChronoChatNode,
   };
 })(globalThis);
 
 (function (root) {
   const ns = root.__JTC__;
+  let hostToggleButton = null;
+  let hostToggleSlot = null;
 
   function createButton({
     id,
@@ -671,60 +808,27 @@
     title.className = "jtch-title";
     title.textContent = "Conversation map";
 
+    const titleMeta = document.createElement("div");
+    titleMeta.className = "jtch-title-meta";
+
     const count = document.createElement("span");
     count.id = "message-count";
     count.className = "jtch-count";
     count.setAttribute("aria-live", "polite");
     count.textContent = "0";
 
-    const actions = document.createElement("div");
-    actions.className = "jtch-header-actions";
-
-    const themeButton = createButton({
-      id: "theme-toggle",
-      className: "jtch-icon-button",
-      text: "Auto",
-      label: "Cycle theme preference",
-      title: "Cycle theme preference",
-    });
-
-    const exportButton = createButton({
-      id: "export-toggle",
-      className: "jtch-icon-button",
-      text: "Export",
-      label: "Open export menu",
-      title: "Open export menu",
-    });
-
     const closeButton = createButton({
       id: "sidebar-close",
-      className: "jtch-icon-button",
-      text: "Close",
+      className: "jtch-icon-button jtch-sidebar-close",
+      text: "×",
       label: "Close sidebar",
       title: "Close sidebar",
     });
 
-    const exportMenu = document.createElement("div");
-    exportMenu.id = "export-menu";
-    exportMenu.className = "jtch-export-menu hidden";
-    ["json", "csv", "md"].forEach((format) => {
-      exportMenu.appendChild(
-        createButton({
-          className: "jtch-export-option",
-          text: format.toUpperCase(),
-          label: `Export ${format.toUpperCase()}`,
-          dataset: { format },
-        }),
-      );
-    });
-
-    actions.appendChild(themeButton);
-    actions.appendChild(exportButton);
-    actions.appendChild(closeButton);
-
+    titleMeta.appendChild(count);
+    titleMeta.appendChild(closeButton);
     titleRow.appendChild(title);
-    titleRow.appendChild(count);
-    titleRow.appendChild(actions);
+    titleRow.appendChild(titleMeta);
 
     const filterGroup = document.createElement("div");
     filterGroup.className = "jtch-filter-group";
@@ -754,77 +858,16 @@
     searchInput.placeholder = "Search messages";
     searchInput.setAttribute("aria-label", "Search messages");
 
-    const regexButton = createButton({
-      id: "regex-toggle",
-      className: "jtch-search-toggle",
-      text: ".*",
-      label: "Toggle regex search",
-      title: "Toggle regex search",
-    });
-
-    const caseButton = createButton({
-      id: "case-toggle",
-      className: "jtch-search-toggle",
-      text: "Aa",
-      label: "Toggle case sensitivity",
-      title: "Toggle case sensitivity",
-    });
-
-    const clearSearch = createButton({
-      id: "search-clear",
-      className: "jtch-search-clear",
-      text: "Clear",
-      label: "Clear search",
-      title: "Clear search",
-    });
-
     searchRow.appendChild(searchInput);
-    searchRow.appendChild(regexButton);
-    searchRow.appendChild(caseButton);
-    searchRow.appendChild(clearSearch);
 
     const searchMeta = document.createElement("div");
     searchMeta.id = "search-meta";
     searchMeta.className = "jtch-search-meta";
 
-    const prefsRow = document.createElement("div");
-    prefsRow.className = "jtch-prefs";
-
-    const compactLabel = document.createElement("label");
-    compactLabel.className = "jtch-pref";
-    const compactCheckbox = document.createElement("input");
-    compactCheckbox.type = "checkbox";
-    compactCheckbox.id = "pref-compact";
-    compactLabel.appendChild(compactCheckbox);
-    compactLabel.appendChild(document.createTextNode(" Compact"));
-
-    const previewLabel = document.createElement("label");
-    previewLabel.className = "jtch-pref jtch-pref-select";
-    previewLabel.appendChild(document.createTextNode("Preview"));
-    const previewSelect = document.createElement("select");
-    previewSelect.id = "pref-preview-len";
-    [100, 140, 180, 220].forEach((value) => {
-      const option = document.createElement("option");
-      option.value = String(value);
-      option.textContent = `${value}`;
-      previewSelect.appendChild(option);
-    });
-    previewLabel.appendChild(previewSelect);
-
-    prefsRow.appendChild(compactLabel);
-    prefsRow.appendChild(previewLabel);
-
-    const status = document.createElement("div");
-    status.id = "jtch-status";
-    status.className = "jtch-status hidden";
-
     header.appendChild(titleRow);
-    header.appendChild(exportMenu);
     header.appendChild(filterGroup);
     header.appendChild(searchRow);
     header.appendChild(searchMeta);
-    header.appendChild(prefsRow);
-    header.appendChild(status);
 
     const messageSection = document.createElement("div");
     messageSection.className = "jtch-section jtch-message-section";
@@ -836,53 +879,107 @@
 
     messageSection.appendChild(messageList);
 
-    const resizeHandle = document.createElement("div");
-    resizeHandle.id = "sidebar-resize-handle";
-    resizeHandle.className = "jtch-resize-handle";
-    resizeHandle.setAttribute("aria-hidden", "true");
-
     sidebar.appendChild(header);
     sidebar.appendChild(messageSection);
-    sidebar.appendChild(resizeHandle);
     return sidebar;
   }
 
-  function createToggleButton() {
-    return createButton({
-      id: "chatgpt-nav-toggle",
-      className: "jtch-toggle-button",
-      text: "Chrono",
-      label: "Toggle ChronoChat sidebar",
-      title: "Open ChronoChat",
-    });
+  function getOrCreateHostToggleButton() {
+    const existing = document.getElementById("chatgpt-nav-toggle");
+    if (existing) {
+      hostToggleButton = existing;
+      return hostToggleButton;
+    }
+
+    if (!hostToggleButton) {
+      hostToggleButton = createButton({
+        id: "chatgpt-nav-toggle",
+        className: "jtch-host-toggle",
+        text: "Jump",
+        label: "Open ChronoChat",
+        title: "Open ChronoChat",
+      });
+    }
+
+    return hostToggleButton;
+  }
+
+  function getOrCreateHostToggleSlot() {
+    const existing = document.getElementById("chatgpt-nav-toggle-slot");
+    if (existing) {
+      hostToggleSlot = existing;
+      return hostToggleSlot;
+    }
+
+    if (!hostToggleSlot) {
+      hostToggleSlot = document.createElement("div");
+      hostToggleSlot.id = "chatgpt-nav-toggle-slot";
+      hostToggleSlot.className = "jtch-host-toggle-slot";
+    }
+
+    return hostToggleSlot;
+  }
+
+  function syncHostTogglePosition() {
+    const slot = getOrCreateHostToggleSlot();
+    const actionBar = ns.dom.getConversationActionBar();
+    const reference = actionBar
+      ? ns.dom.getConversationActionReference(actionBar)
+      : null;
+
+    if (!actionBar || !reference) {
+      slot.hidden = true;
+      slot.remove();
+      return { mounted: false, slot };
+    }
+
+    if (!slot.contains(getOrCreateHostToggleButton())) {
+      slot.appendChild(getOrCreateHostToggleButton());
+    }
+
+    if (slot.parentElement !== actionBar || slot.nextElementSibling !== reference) {
+      actionBar.insertBefore(slot, reference);
+    }
+
+    slot.hidden = Boolean(ns.state?.ui?.sidebarVisible);
+    return { mounted: true, slot };
+  }
+
+  function ensureHostToggleMounted() {
+    const toggle = getOrCreateHostToggleButton();
+    const slot = getOrCreateHostToggleSlot();
+    if (!slot.contains(toggle)) {
+      slot.appendChild(toggle);
+    }
+
+    const { mounted } = syncHostTogglePosition();
+
+    return { toggle, slot, mounted };
   }
 
   function ensureUiRoot() {
     let sidebar = document.getElementById("chatgpt-nav-sidebar");
-    let toggle = document.getElementById("chatgpt-nav-toggle");
-
-    if (!toggle) {
-      toggle = createToggleButton();
-      document.body.appendChild(toggle);
-    }
 
     if (!sidebar) {
       sidebar = createSidebar();
       document.body.appendChild(sidebar);
     }
 
-    return { sidebar, toggle };
+    const { toggle, slot, mounted } = ensureHostToggleMounted();
+    return { sidebar, toggle, toggleSlot: slot, toggleMounted: mounted };
   }
 
   ns.ui = {
     ensureUiRoot,
+    ensureHostToggleMounted,
+    syncHostTogglePosition,
   };
 })(globalThis);
 
 (function (root) {
   const ns = root.__JTC__;
   const state = ns.state;
-  const { clamp, escapeRegExp, createFilenameTimestamp } = ns.utils;
+  const { clamp, createFilenameTimestamp } = ns.utils;
 
   function getElement(id) {
     return document.getElementById(id);
@@ -892,28 +989,13 @@
     return getElement("message-list");
   }
 
-  function setStatus(message, tone = "info") {
-    const element = getElement("jtch-status");
-    if (!element) return;
-    if (!message) {
-      element.textContent = "";
-      element.className = "jtch-status hidden";
-      return;
-    }
-    element.textContent = message;
-    element.className = `jtch-status jtch-status-${tone}`;
-  }
+  function setStatus() {}
 
   function updateThemeUi() {
-    const toggle = getElement("theme-toggle");
-    if (!toggle) return;
-    const preference = state.ui.themePreference;
-    const effectiveTheme =
-      preference === "system-like" ? ns.dom.detectHostTheme() : preference;
-    state.ui.effectiveTheme = effectiveTheme;
-
+    const effectiveTheme = ns.dom.detectHostTheme();
     const sidebar = getElement("chatgpt-nav-sidebar");
     const floatingToggle = getElement("chatgpt-nav-toggle");
+
     [sidebar, floatingToggle].forEach((element) => {
       if (!element) return;
       element.classList.remove("theme-dark", "theme-light");
@@ -921,52 +1003,6 @@
         effectiveTheme === "dark" ? "theme-dark" : "theme-light",
       );
     });
-
-    const labelMap = {
-      "system-like": "Auto",
-      dark: "Dark",
-      light: "Light",
-    };
-    toggle.textContent = labelMap[preference];
-    toggle.title =
-      preference === "system-like"
-        ? "Using ChatGPT theme"
-        : `Theme override: ${preference}`;
-  }
-
-  function cycleThemePreference() {
-    const order = ["system-like", "dark", "light"];
-    const currentIndex = order.indexOf(state.ui.themePreference);
-    state.ui.themePreference = order[(currentIndex + 1) % order.length];
-    updateThemeUi();
-    ns.storage.persistTheme();
-  }
-
-  function compileSearchPattern(term, isRegex, caseSensitive) {
-    if (!term) {
-      return { matcher: null, error: null };
-    }
-
-    try {
-      const source = isRegex ? term : escapeRegExp(term);
-      const flags = caseSensitive ? "u" : "iu";
-      const regex = new RegExp(source, flags);
-      return {
-        matcher: (message) => regex.test(message),
-        error: null,
-      };
-    } catch (error) {
-      if (
-        error.message.includes("Unmatched") ||
-        error.message.includes("Unterminated")
-      ) {
-        return { matcher: null, error: "Unmatched parenthesis or bracket" };
-      }
-      if (error.message.includes("range")) {
-        return { matcher: null, error: "Invalid character range" };
-      }
-      return { matcher: null, error: "Invalid regex syntax" };
-    }
   }
 
   function applySearchState(partialState) {
@@ -975,44 +1011,17 @@
       ...partialState,
     };
     searchState.term = String(searchState.term || "");
-
-    const { matcher, error } = compileSearchPattern(
-      searchState.term,
-      searchState.isRegex,
-      searchState.caseSensitive,
-    );
-
-    if (!searchState.term) {
-      searchState.matcher = null;
-      searchState.lastValidMatcher = null;
-      searchState.lastError = null;
-    } else if (error) {
-      searchState.matcher = searchState.lastValidMatcher;
-      searchState.lastError = error;
-    } else {
-      searchState.matcher = matcher;
-      searchState.lastValidMatcher = matcher;
-      searchState.lastError = null;
-    }
-
     state.ui.search = searchState;
     state.ui.virtualization.start = 0;
     renderFiltersAndMessages();
   }
 
   function doesMessageMatch(message) {
-    const { term, matcher, caseSensitive } = state.ui.search;
+    const term = state.ui.search.term;
     if (!term) return true;
 
-    if (matcher) {
-      return matcher(message.fullText) || matcher(message.preview);
-    }
-
-    const haystack = caseSensitive
-      ? `${message.fullText} ${message.preview}`
-      : `${message.fullText} ${message.preview}`.toLowerCase();
-    const needle = caseSensitive ? term : term.toLowerCase();
-    return haystack.includes(needle);
+    const haystack = `${message.fullText} ${message.preview}`.toLowerCase();
+    return haystack.includes(term.toLowerCase());
   }
 
   function computeVisibleIndices() {
@@ -1090,14 +1099,9 @@
 
     const text = document.createElement("span");
     text.className = "jtch-item-text";
-    const maxLength = clamp(
-      state.ui.previewLen,
-      80,
-      ns.config.maxPreviewLength + 60,
-    );
     const preview =
-      message.preview.length > maxLength
-        ? `${message.preview.slice(0, maxLength)}...`
+      message.preview.length > ns.config.maxPreviewLength
+        ? `${message.preview.slice(0, ns.config.maxPreviewLength)}...`
         : message.preview;
     text.textContent = preview;
 
@@ -1142,23 +1146,15 @@
   function updateSearchMeta() {
     const meta = getElement("search-meta");
     if (!meta) return;
-    if (state.ui.search.lastError) {
-      meta.textContent = `${state.ui.search.lastError}. Keeping previous valid search.`;
-      meta.className = "jtch-search-meta error";
-      return;
-    }
 
-    const { term, matchCount, isRegex, caseSensitive } = state.ui.search;
-    if (!term) {
-      meta.textContent = "Use / to focus search, j/k to navigate, Enter to jump.";
+    if (!state.ui.search.term) {
+      meta.textContent = "";
       meta.className = "jtch-search-meta";
       return;
     }
 
-    const parts = [`${matchCount} match${matchCount === 1 ? "" : "es"}`];
-    if (isRegex) parts.push("regex");
-    if (caseSensitive) parts.push("case-sensitive");
-    meta.textContent = parts.join(" • ");
+    const count = state.ui.search.matchCount;
+    meta.textContent = `${count} match${count === 1 ? "" : "es"}`;
     meta.className = "jtch-search-meta";
   }
 
@@ -1172,25 +1168,9 @@
     });
   }
 
-  function updatePreferenceUi() {
-    const compact = getElement("pref-compact");
-    const previewSelect = getElement("pref-preview-len");
-    if (compact) compact.checked = state.ui.compact;
-    if (previewSelect) previewSelect.value = String(state.ui.previewLen);
-  }
-
   function updateSearchUi() {
     const searchInput = getElement("message-search");
-    const regexButton = getElement("regex-toggle");
-    const caseButton = getElement("case-toggle");
     if (searchInput) searchInput.value = state.ui.search.term;
-    if (regexButton) {
-      regexButton.classList.toggle("active", state.ui.search.isRegex);
-    }
-    if (caseButton) {
-      caseButton.classList.toggle("active", state.ui.search.caseSensitive);
-      caseButton.textContent = state.ui.search.caseSensitive ? "Aa" : "aa";
-    }
   }
 
   function updateCountUi() {
@@ -1204,7 +1184,6 @@
     renderMessageList(windowIndices, canLoadOlder);
     updateSearchMeta();
     updateFilterUi();
-    updatePreferenceUi();
     updateSearchUi();
     updateCountUi();
   }
@@ -1265,18 +1244,6 @@
     renderFiltersAndMessages();
   }
 
-  function setCompact(value) {
-    state.ui.compact = Boolean(value);
-    getMessageList()?.classList.toggle("compact", state.ui.compact);
-    ns.storage.persistPrefs();
-  }
-
-  function setPreviewLength(value) {
-    state.ui.previewLen = clamp(Number(value) || 120, 80, 220);
-    ns.storage.persistPrefs();
-    renderFiltersAndMessages();
-  }
-
   function buildExportPayload() {
     return state.conversation.messages.map((message) => ({
       index: message.index,
@@ -1330,71 +1297,16 @@
     return markdown;
   }
 
-  function downloadFile(content, filename, mimeType) {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    root.setTimeout(() => URL.revokeObjectURL(url), 50);
-  }
-
-  function exportConversation(format) {
-    const messages = buildExportPayload();
-    if (messages.length === 0) {
-      setStatus("No messages available to export.", "warning");
-      return;
-    }
-
-    switch (format) {
-      case "json":
-        downloadFile(
-          generateJSON(messages),
-          `chat-${createFilenameTimestamp()}.json`,
-          "application/json",
-        );
-        break;
-      case "csv":
-        downloadFile(
-          generateCSV(messages),
-          `chat-${createFilenameTimestamp()}.csv`,
-          "text/csv",
-        );
-        break;
-      case "md":
-        downloadFile(
-          generateMarkdown(messages),
-          `chat-${createFilenameTimestamp()}.md`,
-          "text/markdown",
-        );
-        break;
-      default:
-        setStatus("Unsupported export format.", "warning");
-        return;
-    }
-
-    setStatus("Conversation exported.", "success");
-  }
-
   ns.features = {
     applySearchState,
-    compileSearchPattern,
     renderFiltersAndMessages,
     updateThemeUi,
-    cycleThemePreference,
     selectMessage,
     selectRelativeMessage,
     clearSelection,
     scrollToMessage,
     focusSearch,
     setFilter,
-    setCompact,
-    setPreviewLength,
-    exportConversation,
     sanitizeCsvCell,
     generateJSON,
     generateCSV,
@@ -1418,50 +1330,55 @@
   }
 
   function addEventListenerWithCleanup(target, type, handler, options) {
+    if (!target?.addEventListener) return;
     target.addEventListener(type, handler, options);
     registerCleanup(() => target.removeEventListener(type, handler, options));
   }
 
-  function closeExportMenu() {
-    const menu = getElement("export-menu");
-    if (!menu) return;
-    menu.classList.add("hidden");
-    state.ui.exportMenuVisible = false;
-  }
-
-  function openExportMenu() {
-    const menu = getElement("export-menu");
-    if (!menu) return;
-    menu.classList.remove("hidden");
-    state.ui.exportMenuVisible = true;
+  function openSidebarNow() {
+    state.ui.sidebarVisible = true;
+    syncHostUi();
+    syncSidebarVisibility();
+    refreshMessages();
   }
 
   function syncSidebarVisibility() {
-    const sidebar = getElement("chatgpt-nav-sidebar");
-    const toggle = getElement("chatgpt-nav-toggle");
+    const { sidebar, toggleSlot } = ns.ui.ensureUiRoot();
+    const toggle = document.getElementById("chatgpt-nav-toggle");
     const chatContainer = ns.dom.getChatContainer();
-    if (!sidebar || !toggle) return;
+    const leftRail = ns.dom.getHostLeftRail?.();
+    const leftOffset = leftRail
+      ? Math.max(0, Math.round(leftRail.getBoundingClientRect().right))
+      : 0;
 
-    sidebar.classList.toggle("open", state.ui.sidebarVisible);
-    toggle.classList.toggle("active", state.ui.sidebarVisible);
-    toggle.setAttribute("aria-pressed", state.ui.sidebarVisible ? "true" : "false");
-    toggle.setAttribute("aria-hidden", state.ui.sidebarVisible ? "true" : "false");
-    if (state.ui.sidebarVisible) {
-      toggle.setAttribute("tabindex", "-1");
-    } else {
-      toggle.removeAttribute("tabindex");
+    bindUiElements();
+
+    if (sidebar) {
+      sidebar.classList.toggle("open", state.ui.sidebarVisible);
+      sidebar.style.setProperty("top", "0px", "important");
+      sidebar.style.setProperty("left", `${leftOffset}px`, "important");
+      sidebar.style.setProperty("right", "auto", "important");
+      sidebar.style.setProperty("bottom", "0px", "important");
+      sidebar.style.setProperty("width", `${ns.config.sidebarWidth}px`, "important");
+      sidebar.style.setProperty("height", "100vh", "important");
     }
-    toggle.title = state.ui.sidebarVisible
-      ? "Close ChronoChat"
-      : "Open ChronoChat";
 
-    sidebar.style.setProperty("width", `${state.ui.sidebarWidth}px`, "important");
+    if (toggleSlot) {
+      toggleSlot.hidden = state.ui.sidebarVisible;
+    }
+
+    if (toggle) {
+      toggle.classList.toggle("active", state.ui.sidebarVisible);
+      toggle.setAttribute("aria-pressed", state.ui.sidebarVisible ? "true" : "false");
+      toggle.title = state.ui.sidebarVisible ? "Close ChronoChat" : "Open ChronoChat";
+    }
 
     if (chatContainer) {
-      chatContainer.style.transition = "margin-right 0.18s ease";
-      chatContainer.style.marginRight = state.ui.sidebarVisible
-        ? `${state.ui.sidebarWidth}px`
+      chatContainer.style.transition = "margin-left 0.18s ease";
+      chatContainer.style.marginLeft = state.ui.sidebarVisible
+        ? `${ns.config.sidebarWidth}px`
         : "0px";
+      chatContainer.style.marginRight = "0px";
     }
   }
 
@@ -1481,29 +1398,29 @@
   }
 
   function toggleSidebar(forceValue) {
-    state.ui.sidebarVisible =
+    const nextValue =
       typeof forceValue === "boolean" ? forceValue : !state.ui.sidebarVisible;
-    syncSidebarVisibility();
-    if (state.ui.sidebarVisible) {
-      refreshMessages();
-    } else {
-      closeExportMenu();
-      ns.features.clearSelection();
+
+    if (nextValue) {
+      openSidebarNow();
+      return;
     }
+
+    state.ui.sidebarVisible = false;
+    syncSidebarVisibility();
+    ns.features.clearSelection();
   }
 
   function handleListInteraction(event) {
     const actionTarget = event.target.closest("[data-action='load-older']");
     if (actionTarget) {
       event.preventDefault();
-      if (actionTarget.dataset.action === "load-older") {
-        state.ui.virtualization.start = Math.max(
-          0,
-          state.ui.virtualization.start - ns.config.virtualListPageSize,
-        );
-        ns.features.renderFiltersAndMessages();
-        return;
-      }
+      state.ui.virtualization.start = Math.max(
+        0,
+        state.ui.virtualization.start - ns.config.virtualListPageSize,
+      );
+      ns.features.renderFiltersAndMessages();
+      return;
     }
 
     const item = event.target.closest("li[data-message-index]");
@@ -1521,6 +1438,10 @@
     if (!item) return;
     event.preventDefault();
     item.click();
+  }
+
+  function stopSidebarEventPropagation(event) {
+    event.stopPropagation();
   }
 
   function handleGlobalKeydown(event) {
@@ -1576,107 +1497,73 @@
     }
   }
 
+  function syncHostUi() {
+    ns.ui.ensureHostToggleMounted();
+    ns.ui.syncHostTogglePosition?.();
+    bindUiElements();
+    ns.features.updateThemeUi();
+  }
+
   function bindUi() {
-    const { sidebar, toggle } = ns.ui.ensureUiRoot();
-    sidebar.style.setProperty("width", `${state.ui.sidebarWidth}px`, "important");
-
-    addEventListenerWithCleanup(toggle, "click", () => toggleSidebar());
-    addEventListenerWithCleanup(getElement("sidebar-close"), "click", () =>
-      toggleSidebar(false),
-    );
-    addEventListenerWithCleanup(getElement("theme-toggle"), "click", () =>
-      ns.features.cycleThemePreference(),
-    );
-    addEventListenerWithCleanup(getElement("export-toggle"), "click", (event) => {
-      event.stopPropagation();
-      if (state.ui.exportMenuVisible) closeExportMenu();
-      else openExportMenu();
-    });
-    addEventListenerWithCleanup(document, "click", (event) => {
-      const menu = getElement("export-menu");
-      const toggleButton = getElement("export-toggle");
-      if (
-        state.ui.exportMenuVisible &&
-        menu &&
-        !menu.contains(event.target) &&
-        !toggleButton.contains(event.target)
-      ) {
-        closeExportMenu();
-      }
-    });
-    addEventListenerWithCleanup(getElement("export-menu"), "click", (event) => {
-      const option = event.target.closest("[data-format]");
-      if (!option) return;
-      ns.features.exportConversation(option.dataset.format);
-      closeExportMenu();
-    });
-    addEventListenerWithCleanup(getElement("filter-group"), "click", (event) => {
-      const button = event.target.closest("[data-filter]");
-      if (!button) return;
-      ns.features.setFilter(button.dataset.filter);
-    });
-    addEventListenerWithCleanup(getElement("message-search"), "input", (event) => {
-      ns.features.applySearchState({ term: event.target.value });
-    });
-    addEventListenerWithCleanup(getElement("message-search"), "keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        ns.features.applySearchState({ term: "" });
-      }
-    });
-    addEventListenerWithCleanup(getElement("search-clear"), "click", () => {
-      ns.features.applySearchState({ term: "" });
-    });
-    addEventListenerWithCleanup(getElement("regex-toggle"), "click", () => {
-      ns.features.applySearchState({ isRegex: !state.ui.search.isRegex });
-    });
-    addEventListenerWithCleanup(getElement("case-toggle"), "click", () => {
-      ns.features.applySearchState({
-        caseSensitive: !state.ui.search.caseSensitive,
-      });
-    });
-    addEventListenerWithCleanup(getElement("pref-compact"), "change", (event) => {
-      ns.features.setCompact(event.target.checked);
-    });
-    addEventListenerWithCleanup(getElement("pref-preview-len"), "change", (event) => {
-      ns.features.setPreviewLength(event.target.value);
-    });
-    addEventListenerWithCleanup(getElement("message-list"), "click", handleListInteraction);
-    addEventListenerWithCleanup(getElement("message-list"), "keydown", handleListKeydown);
+    bindUiElements();
     addEventListenerWithCleanup(document, "keydown", handleGlobalKeydown);
+  }
 
-    const resizeHandle = getElement("sidebar-resize-handle");
-    addEventListenerWithCleanup(resizeHandle, "mousedown", (event) => {
-      state.runtime.isResizing = true;
-      state.runtime.resizeStartX = event.clientX;
-      state.runtime.resizeStartWidth = state.ui.sidebarWidth;
-      document.body.classList.add("jtch-resizing");
-      event.preventDefault();
-    });
+  function bindUiElements() {
+    const { sidebar, toggle } = ns.ui.ensureUiRoot();
+    sidebar.style.setProperty("width", `${ns.config.sidebarWidth}px`, "important");
 
-    const onMouseMove = (event) => {
-      if (!state.runtime.isResizing) return;
-      const delta = state.runtime.resizeStartX - event.clientX;
-      state.ui.sidebarWidth = ns.utils.clamp(
-        state.runtime.resizeStartWidth + delta,
-        ns.config.sidebarMinWidth,
-        ns.config.sidebarMaxWidth,
-      );
-      sidebar.style.setProperty("width", `${state.ui.sidebarWidth}px`, "important");
-      syncSidebarVisibility();
-    };
+    if (!toggle.dataset.jtchBound) {
+      addEventListenerWithCleanup(toggle, "click", () => toggleSidebar());
+      toggle.dataset.jtchBound = "true";
+    }
 
-    const onMouseUp = () => {
-      if (!state.runtime.isResizing) return;
-      state.runtime.isResizing = false;
-      document.body.classList.remove("jtch-resizing");
-      ns.storage.persistSidebarWidth();
-    };
+    if (!sidebar.dataset.jtchBound) {
+      addEventListenerWithCleanup(sidebar, "pointerdown", stopSidebarEventPropagation, true);
+      addEventListenerWithCleanup(sidebar, "mousedown", stopSidebarEventPropagation, true);
+      sidebar.dataset.jtchBound = "true";
+    }
 
-    addEventListenerWithCleanup(document, "mousemove", onMouseMove);
-    addEventListenerWithCleanup(document, "mouseup", onMouseUp);
-    addEventListenerWithCleanup(root, "mousemove", onMouseMove);
-    addEventListenerWithCleanup(root, "mouseup", onMouseUp);
+    const closeButton = getElement("sidebar-close");
+    if (closeButton && !closeButton.dataset.jtchBound) {
+      addEventListenerWithCleanup(closeButton, "click", (event) => {
+        event.preventDefault();
+        toggleSidebar(false);
+      });
+      closeButton.dataset.jtchBound = "true";
+    }
+
+    const filterGroup = getElement("filter-group");
+    if (filterGroup && !filterGroup.dataset.jtchBound) {
+      addEventListenerWithCleanup(filterGroup, "click", (event) => {
+        const button = event.target.closest("[data-filter]");
+        if (!button) return;
+        event.preventDefault();
+        ns.features.setFilter(button.dataset.filter);
+      });
+      filterGroup.dataset.jtchBound = "true";
+    }
+
+    const searchInput = getElement("message-search");
+    if (searchInput && !searchInput.dataset.jtchBound) {
+      addEventListenerWithCleanup(searchInput, "input", (event) => {
+        ns.features.applySearchState({ term: event.target.value });
+      });
+      addEventListenerWithCleanup(searchInput, "keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          ns.features.applySearchState({ term: "" });
+        }
+      });
+      searchInput.dataset.jtchBound = "true";
+    }
+
+    const messageList = getElement("message-list");
+    if (messageList && !messageList.dataset.jtchBound) {
+      addEventListenerWithCleanup(messageList, "click", handleListInteraction);
+      addEventListenerWithCleanup(messageList, "keydown", handleListKeydown);
+      messageList.dataset.jtchBound = "true";
+    }
   }
 
   function startObserver() {
@@ -1710,17 +1597,12 @@
     state.conversation.id = ns.utils.getConversationId(currentUrl);
     state.ui.search = {
       term: "",
-      isRegex: false,
-      caseSensitive: false,
-      lastError: null,
-      matcher: null,
-      lastValidMatcher: null,
       matchCount: 0,
     };
     state.ui.selectedMessageIndex = -1;
     state.ui.virtualization.start = 0;
-    ns.features.setStatus("", "info");
     startObserver();
+    syncHostUi();
     if (state.ui.sidebarVisible) {
       refreshMessages();
     }
@@ -1738,9 +1620,7 @@
 
   function startThemeWatcher() {
     const observer = new MutationObserver(() => {
-      if (state.ui.themePreference === "system-like") {
-        ns.features.updateThemeUi();
-      }
+      ns.features.updateThemeUi();
     });
     observer.observe(document.documentElement, {
       attributes: true,
@@ -1748,6 +1628,31 @@
     });
     state.runtime.hostThemeObserver = observer;
     registerCleanup(() => observer.disconnect());
+  }
+
+  function startHostUiWatcher() {
+    if (state.runtime.hostUiObserver) {
+      state.runtime.hostUiObserver.disconnect();
+    }
+
+    const sync = ns.utils.createDebouncer(syncHostUi, ns.config.hostUiSyncDelay);
+    state.runtime.hostUiSync = sync;
+
+    const observer = new MutationObserver(() => {
+      sync();
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+    state.runtime.hostUiObserver = observer;
+
+    registerCleanup(() => {
+      observer.disconnect();
+      sync.cancel?.();
+      state.runtime.hostUiObserver = null;
+      state.runtime.hostUiSync = null;
+    });
   }
 
   function cleanup() {
@@ -1774,13 +1679,18 @@
     ns.ui.ensureUiRoot();
     bindUi();
     ns.features.updateThemeUi();
-    ns.features.setCompact(state.ui.compact);
     syncSidebarVisibility();
     refreshMessages();
     startObserver();
     startRouteWatcher();
     startThemeWatcher();
+    startHostUiWatcher();
+    syncHostUi();
     addEventListenerWithCleanup(root, "beforeunload", cleanup);
+    addEventListenerWithCleanup(root, "resize", () => {
+      syncHostUi();
+      syncSidebarVisibility();
+    });
   }
 
   if (document.readyState === "loading") {
@@ -1817,6 +1727,7 @@
       refreshMessages,
       handleRouteChange,
       scheduleRefresh,
+      syncHostUi,
     };
   }
 })(globalThis);

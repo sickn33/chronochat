@@ -1,7 +1,7 @@
 (function (root) {
   const ns = root.__JTC__;
   const state = ns.state;
-  const { clamp, escapeRegExp, createFilenameTimestamp } = ns.utils;
+  const { clamp, createFilenameTimestamp } = ns.utils;
 
   function getElement(id) {
     return document.getElementById(id);
@@ -11,28 +11,13 @@
     return getElement("message-list");
   }
 
-  function setStatus(message, tone = "info") {
-    const element = getElement("jtch-status");
-    if (!element) return;
-    if (!message) {
-      element.textContent = "";
-      element.className = "jtch-status hidden";
-      return;
-    }
-    element.textContent = message;
-    element.className = `jtch-status jtch-status-${tone}`;
-  }
+  function setStatus() {}
 
   function updateThemeUi() {
-    const toggle = getElement("theme-toggle");
-    if (!toggle) return;
-    const preference = state.ui.themePreference;
-    const effectiveTheme =
-      preference === "system-like" ? ns.dom.detectHostTheme() : preference;
-    state.ui.effectiveTheme = effectiveTheme;
-
+    const effectiveTheme = ns.dom.detectHostTheme();
     const sidebar = getElement("chatgpt-nav-sidebar");
     const floatingToggle = getElement("chatgpt-nav-toggle");
+
     [sidebar, floatingToggle].forEach((element) => {
       if (!element) return;
       element.classList.remove("theme-dark", "theme-light");
@@ -40,52 +25,6 @@
         effectiveTheme === "dark" ? "theme-dark" : "theme-light",
       );
     });
-
-    const labelMap = {
-      "system-like": "Auto",
-      dark: "Dark",
-      light: "Light",
-    };
-    toggle.textContent = labelMap[preference];
-    toggle.title =
-      preference === "system-like"
-        ? "Using ChatGPT theme"
-        : `Theme override: ${preference}`;
-  }
-
-  function cycleThemePreference() {
-    const order = ["system-like", "dark", "light"];
-    const currentIndex = order.indexOf(state.ui.themePreference);
-    state.ui.themePreference = order[(currentIndex + 1) % order.length];
-    updateThemeUi();
-    ns.storage.persistTheme();
-  }
-
-  function compileSearchPattern(term, isRegex, caseSensitive) {
-    if (!term) {
-      return { matcher: null, error: null };
-    }
-
-    try {
-      const source = isRegex ? term : escapeRegExp(term);
-      const flags = caseSensitive ? "u" : "iu";
-      const regex = new RegExp(source, flags);
-      return {
-        matcher: (message) => regex.test(message),
-        error: null,
-      };
-    } catch (error) {
-      if (
-        error.message.includes("Unmatched") ||
-        error.message.includes("Unterminated")
-      ) {
-        return { matcher: null, error: "Unmatched parenthesis or bracket" };
-      }
-      if (error.message.includes("range")) {
-        return { matcher: null, error: "Invalid character range" };
-      }
-      return { matcher: null, error: "Invalid regex syntax" };
-    }
   }
 
   function applySearchState(partialState) {
@@ -94,44 +33,17 @@
       ...partialState,
     };
     searchState.term = String(searchState.term || "");
-
-    const { matcher, error } = compileSearchPattern(
-      searchState.term,
-      searchState.isRegex,
-      searchState.caseSensitive,
-    );
-
-    if (!searchState.term) {
-      searchState.matcher = null;
-      searchState.lastValidMatcher = null;
-      searchState.lastError = null;
-    } else if (error) {
-      searchState.matcher = searchState.lastValidMatcher;
-      searchState.lastError = error;
-    } else {
-      searchState.matcher = matcher;
-      searchState.lastValidMatcher = matcher;
-      searchState.lastError = null;
-    }
-
     state.ui.search = searchState;
     state.ui.virtualization.start = 0;
     renderFiltersAndMessages();
   }
 
   function doesMessageMatch(message) {
-    const { term, matcher, caseSensitive } = state.ui.search;
+    const term = state.ui.search.term;
     if (!term) return true;
 
-    if (matcher) {
-      return matcher(message.fullText) || matcher(message.preview);
-    }
-
-    const haystack = caseSensitive
-      ? `${message.fullText} ${message.preview}`
-      : `${message.fullText} ${message.preview}`.toLowerCase();
-    const needle = caseSensitive ? term : term.toLowerCase();
-    return haystack.includes(needle);
+    const haystack = `${message.fullText} ${message.preview}`.toLowerCase();
+    return haystack.includes(term.toLowerCase());
   }
 
   function computeVisibleIndices() {
@@ -209,14 +121,9 @@
 
     const text = document.createElement("span");
     text.className = "jtch-item-text";
-    const maxLength = clamp(
-      state.ui.previewLen,
-      80,
-      ns.config.maxPreviewLength + 60,
-    );
     const preview =
-      message.preview.length > maxLength
-        ? `${message.preview.slice(0, maxLength)}...`
+      message.preview.length > ns.config.maxPreviewLength
+        ? `${message.preview.slice(0, ns.config.maxPreviewLength)}...`
         : message.preview;
     text.textContent = preview;
 
@@ -261,23 +168,15 @@
   function updateSearchMeta() {
     const meta = getElement("search-meta");
     if (!meta) return;
-    if (state.ui.search.lastError) {
-      meta.textContent = `${state.ui.search.lastError}. Keeping previous valid search.`;
-      meta.className = "jtch-search-meta error";
-      return;
-    }
 
-    const { term, matchCount, isRegex, caseSensitive } = state.ui.search;
-    if (!term) {
-      meta.textContent = "Use / to focus search, j/k to navigate, Enter to jump.";
+    if (!state.ui.search.term) {
+      meta.textContent = "";
       meta.className = "jtch-search-meta";
       return;
     }
 
-    const parts = [`${matchCount} match${matchCount === 1 ? "" : "es"}`];
-    if (isRegex) parts.push("regex");
-    if (caseSensitive) parts.push("case-sensitive");
-    meta.textContent = parts.join(" • ");
+    const count = state.ui.search.matchCount;
+    meta.textContent = `${count} match${count === 1 ? "" : "es"}`;
     meta.className = "jtch-search-meta";
   }
 
@@ -291,25 +190,9 @@
     });
   }
 
-  function updatePreferenceUi() {
-    const compact = getElement("pref-compact");
-    const previewSelect = getElement("pref-preview-len");
-    if (compact) compact.checked = state.ui.compact;
-    if (previewSelect) previewSelect.value = String(state.ui.previewLen);
-  }
-
   function updateSearchUi() {
     const searchInput = getElement("message-search");
-    const regexButton = getElement("regex-toggle");
-    const caseButton = getElement("case-toggle");
     if (searchInput) searchInput.value = state.ui.search.term;
-    if (regexButton) {
-      regexButton.classList.toggle("active", state.ui.search.isRegex);
-    }
-    if (caseButton) {
-      caseButton.classList.toggle("active", state.ui.search.caseSensitive);
-      caseButton.textContent = state.ui.search.caseSensitive ? "Aa" : "aa";
-    }
   }
 
   function updateCountUi() {
@@ -323,7 +206,6 @@
     renderMessageList(windowIndices, canLoadOlder);
     updateSearchMeta();
     updateFilterUi();
-    updatePreferenceUi();
     updateSearchUi();
     updateCountUi();
   }
@@ -384,18 +266,6 @@
     renderFiltersAndMessages();
   }
 
-  function setCompact(value) {
-    state.ui.compact = Boolean(value);
-    getMessageList()?.classList.toggle("compact", state.ui.compact);
-    ns.storage.persistPrefs();
-  }
-
-  function setPreviewLength(value) {
-    state.ui.previewLen = clamp(Number(value) || 120, 80, 220);
-    ns.storage.persistPrefs();
-    renderFiltersAndMessages();
-  }
-
   function buildExportPayload() {
     return state.conversation.messages.map((message) => ({
       index: message.index,
@@ -449,71 +319,16 @@
     return markdown;
   }
 
-  function downloadFile(content, filename, mimeType) {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    root.setTimeout(() => URL.revokeObjectURL(url), 50);
-  }
-
-  function exportConversation(format) {
-    const messages = buildExportPayload();
-    if (messages.length === 0) {
-      setStatus("No messages available to export.", "warning");
-      return;
-    }
-
-    switch (format) {
-      case "json":
-        downloadFile(
-          generateJSON(messages),
-          `chat-${createFilenameTimestamp()}.json`,
-          "application/json",
-        );
-        break;
-      case "csv":
-        downloadFile(
-          generateCSV(messages),
-          `chat-${createFilenameTimestamp()}.csv`,
-          "text/csv",
-        );
-        break;
-      case "md":
-        downloadFile(
-          generateMarkdown(messages),
-          `chat-${createFilenameTimestamp()}.md`,
-          "text/markdown",
-        );
-        break;
-      default:
-        setStatus("Unsupported export format.", "warning");
-        return;
-    }
-
-    setStatus("Conversation exported.", "success");
-  }
-
   ns.features = {
     applySearchState,
-    compileSearchPattern,
     renderFiltersAndMessages,
     updateThemeUi,
-    cycleThemePreference,
     selectMessage,
     selectRelativeMessage,
     clearSelection,
     scrollToMessage,
     focusSearch,
     setFilter,
-    setCompact,
-    setPreviewLength,
-    exportConversation,
     sanitizeCsvCell,
     generateJSON,
     generateCSV,

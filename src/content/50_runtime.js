@@ -11,50 +11,55 @@
   }
 
   function addEventListenerWithCleanup(target, type, handler, options) {
+    if (!target?.addEventListener) return;
     target.addEventListener(type, handler, options);
     registerCleanup(() => target.removeEventListener(type, handler, options));
   }
 
-  function closeExportMenu() {
-    const menu = getElement("export-menu");
-    if (!menu) return;
-    menu.classList.add("hidden");
-    state.ui.exportMenuVisible = false;
-  }
-
-  function openExportMenu() {
-    const menu = getElement("export-menu");
-    if (!menu) return;
-    menu.classList.remove("hidden");
-    state.ui.exportMenuVisible = true;
+  function openSidebarNow() {
+    state.ui.sidebarVisible = true;
+    syncHostUi();
+    syncSidebarVisibility();
+    refreshMessages();
   }
 
   function syncSidebarVisibility() {
-    const sidebar = getElement("chatgpt-nav-sidebar");
-    const toggle = getElement("chatgpt-nav-toggle");
+    const { sidebar, toggleSlot } = ns.ui.ensureUiRoot();
+    const toggle = document.getElementById("chatgpt-nav-toggle");
     const chatContainer = ns.dom.getChatContainer();
-    if (!sidebar || !toggle) return;
+    const leftRail = ns.dom.getHostLeftRail?.();
+    const leftOffset = leftRail
+      ? Math.max(0, Math.round(leftRail.getBoundingClientRect().right))
+      : 0;
 
-    sidebar.classList.toggle("open", state.ui.sidebarVisible);
-    toggle.classList.toggle("active", state.ui.sidebarVisible);
-    toggle.setAttribute("aria-pressed", state.ui.sidebarVisible ? "true" : "false");
-    toggle.setAttribute("aria-hidden", state.ui.sidebarVisible ? "true" : "false");
-    if (state.ui.sidebarVisible) {
-      toggle.setAttribute("tabindex", "-1");
-    } else {
-      toggle.removeAttribute("tabindex");
+    bindUiElements();
+
+    if (sidebar) {
+      sidebar.classList.toggle("open", state.ui.sidebarVisible);
+      sidebar.style.setProperty("top", "0px", "important");
+      sidebar.style.setProperty("left", `${leftOffset}px`, "important");
+      sidebar.style.setProperty("right", "auto", "important");
+      sidebar.style.setProperty("bottom", "0px", "important");
+      sidebar.style.setProperty("width", `${ns.config.sidebarWidth}px`, "important");
+      sidebar.style.setProperty("height", "100vh", "important");
     }
-    toggle.title = state.ui.sidebarVisible
-      ? "Close ChronoChat"
-      : "Open ChronoChat";
 
-    sidebar.style.setProperty("width", `${state.ui.sidebarWidth}px`, "important");
+    if (toggleSlot) {
+      toggleSlot.hidden = state.ui.sidebarVisible;
+    }
+
+    if (toggle) {
+      toggle.classList.toggle("active", state.ui.sidebarVisible);
+      toggle.setAttribute("aria-pressed", state.ui.sidebarVisible ? "true" : "false");
+      toggle.title = state.ui.sidebarVisible ? "Close ChronoChat" : "Open ChronoChat";
+    }
 
     if (chatContainer) {
-      chatContainer.style.transition = "margin-right 0.18s ease";
-      chatContainer.style.marginRight = state.ui.sidebarVisible
-        ? `${state.ui.sidebarWidth}px`
+      chatContainer.style.transition = "margin-left 0.18s ease";
+      chatContainer.style.marginLeft = state.ui.sidebarVisible
+        ? `${ns.config.sidebarWidth}px`
         : "0px";
+      chatContainer.style.marginRight = "0px";
     }
   }
 
@@ -74,29 +79,29 @@
   }
 
   function toggleSidebar(forceValue) {
-    state.ui.sidebarVisible =
+    const nextValue =
       typeof forceValue === "boolean" ? forceValue : !state.ui.sidebarVisible;
-    syncSidebarVisibility();
-    if (state.ui.sidebarVisible) {
-      refreshMessages();
-    } else {
-      closeExportMenu();
-      ns.features.clearSelection();
+
+    if (nextValue) {
+      openSidebarNow();
+      return;
     }
+
+    state.ui.sidebarVisible = false;
+    syncSidebarVisibility();
+    ns.features.clearSelection();
   }
 
   function handleListInteraction(event) {
     const actionTarget = event.target.closest("[data-action='load-older']");
     if (actionTarget) {
       event.preventDefault();
-      if (actionTarget.dataset.action === "load-older") {
-        state.ui.virtualization.start = Math.max(
-          0,
-          state.ui.virtualization.start - ns.config.virtualListPageSize,
-        );
-        ns.features.renderFiltersAndMessages();
-        return;
-      }
+      state.ui.virtualization.start = Math.max(
+        0,
+        state.ui.virtualization.start - ns.config.virtualListPageSize,
+      );
+      ns.features.renderFiltersAndMessages();
+      return;
     }
 
     const item = event.target.closest("li[data-message-index]");
@@ -114,6 +119,10 @@
     if (!item) return;
     event.preventDefault();
     item.click();
+  }
+
+  function stopSidebarEventPropagation(event) {
+    event.stopPropagation();
   }
 
   function handleGlobalKeydown(event) {
@@ -169,107 +178,73 @@
     }
   }
 
+  function syncHostUi() {
+    ns.ui.ensureHostToggleMounted();
+    ns.ui.syncHostTogglePosition?.();
+    bindUiElements();
+    ns.features.updateThemeUi();
+  }
+
   function bindUi() {
-    const { sidebar, toggle } = ns.ui.ensureUiRoot();
-    sidebar.style.setProperty("width", `${state.ui.sidebarWidth}px`, "important");
-
-    addEventListenerWithCleanup(toggle, "click", () => toggleSidebar());
-    addEventListenerWithCleanup(getElement("sidebar-close"), "click", () =>
-      toggleSidebar(false),
-    );
-    addEventListenerWithCleanup(getElement("theme-toggle"), "click", () =>
-      ns.features.cycleThemePreference(),
-    );
-    addEventListenerWithCleanup(getElement("export-toggle"), "click", (event) => {
-      event.stopPropagation();
-      if (state.ui.exportMenuVisible) closeExportMenu();
-      else openExportMenu();
-    });
-    addEventListenerWithCleanup(document, "click", (event) => {
-      const menu = getElement("export-menu");
-      const toggleButton = getElement("export-toggle");
-      if (
-        state.ui.exportMenuVisible &&
-        menu &&
-        !menu.contains(event.target) &&
-        !toggleButton.contains(event.target)
-      ) {
-        closeExportMenu();
-      }
-    });
-    addEventListenerWithCleanup(getElement("export-menu"), "click", (event) => {
-      const option = event.target.closest("[data-format]");
-      if (!option) return;
-      ns.features.exportConversation(option.dataset.format);
-      closeExportMenu();
-    });
-    addEventListenerWithCleanup(getElement("filter-group"), "click", (event) => {
-      const button = event.target.closest("[data-filter]");
-      if (!button) return;
-      ns.features.setFilter(button.dataset.filter);
-    });
-    addEventListenerWithCleanup(getElement("message-search"), "input", (event) => {
-      ns.features.applySearchState({ term: event.target.value });
-    });
-    addEventListenerWithCleanup(getElement("message-search"), "keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        ns.features.applySearchState({ term: "" });
-      }
-    });
-    addEventListenerWithCleanup(getElement("search-clear"), "click", () => {
-      ns.features.applySearchState({ term: "" });
-    });
-    addEventListenerWithCleanup(getElement("regex-toggle"), "click", () => {
-      ns.features.applySearchState({ isRegex: !state.ui.search.isRegex });
-    });
-    addEventListenerWithCleanup(getElement("case-toggle"), "click", () => {
-      ns.features.applySearchState({
-        caseSensitive: !state.ui.search.caseSensitive,
-      });
-    });
-    addEventListenerWithCleanup(getElement("pref-compact"), "change", (event) => {
-      ns.features.setCompact(event.target.checked);
-    });
-    addEventListenerWithCleanup(getElement("pref-preview-len"), "change", (event) => {
-      ns.features.setPreviewLength(event.target.value);
-    });
-    addEventListenerWithCleanup(getElement("message-list"), "click", handleListInteraction);
-    addEventListenerWithCleanup(getElement("message-list"), "keydown", handleListKeydown);
+    bindUiElements();
     addEventListenerWithCleanup(document, "keydown", handleGlobalKeydown);
+  }
 
-    const resizeHandle = getElement("sidebar-resize-handle");
-    addEventListenerWithCleanup(resizeHandle, "mousedown", (event) => {
-      state.runtime.isResizing = true;
-      state.runtime.resizeStartX = event.clientX;
-      state.runtime.resizeStartWidth = state.ui.sidebarWidth;
-      document.body.classList.add("jtch-resizing");
-      event.preventDefault();
-    });
+  function bindUiElements() {
+    const { sidebar, toggle } = ns.ui.ensureUiRoot();
+    sidebar.style.setProperty("width", `${ns.config.sidebarWidth}px`, "important");
 
-    const onMouseMove = (event) => {
-      if (!state.runtime.isResizing) return;
-      const delta = state.runtime.resizeStartX - event.clientX;
-      state.ui.sidebarWidth = ns.utils.clamp(
-        state.runtime.resizeStartWidth + delta,
-        ns.config.sidebarMinWidth,
-        ns.config.sidebarMaxWidth,
-      );
-      sidebar.style.setProperty("width", `${state.ui.sidebarWidth}px`, "important");
-      syncSidebarVisibility();
-    };
+    if (!toggle.dataset.jtchBound) {
+      addEventListenerWithCleanup(toggle, "click", () => toggleSidebar());
+      toggle.dataset.jtchBound = "true";
+    }
 
-    const onMouseUp = () => {
-      if (!state.runtime.isResizing) return;
-      state.runtime.isResizing = false;
-      document.body.classList.remove("jtch-resizing");
-      ns.storage.persistSidebarWidth();
-    };
+    if (!sidebar.dataset.jtchBound) {
+      addEventListenerWithCleanup(sidebar, "pointerdown", stopSidebarEventPropagation, true);
+      addEventListenerWithCleanup(sidebar, "mousedown", stopSidebarEventPropagation, true);
+      sidebar.dataset.jtchBound = "true";
+    }
 
-    addEventListenerWithCleanup(document, "mousemove", onMouseMove);
-    addEventListenerWithCleanup(document, "mouseup", onMouseUp);
-    addEventListenerWithCleanup(root, "mousemove", onMouseMove);
-    addEventListenerWithCleanup(root, "mouseup", onMouseUp);
+    const closeButton = getElement("sidebar-close");
+    if (closeButton && !closeButton.dataset.jtchBound) {
+      addEventListenerWithCleanup(closeButton, "click", (event) => {
+        event.preventDefault();
+        toggleSidebar(false);
+      });
+      closeButton.dataset.jtchBound = "true";
+    }
+
+    const filterGroup = getElement("filter-group");
+    if (filterGroup && !filterGroup.dataset.jtchBound) {
+      addEventListenerWithCleanup(filterGroup, "click", (event) => {
+        const button = event.target.closest("[data-filter]");
+        if (!button) return;
+        event.preventDefault();
+        ns.features.setFilter(button.dataset.filter);
+      });
+      filterGroup.dataset.jtchBound = "true";
+    }
+
+    const searchInput = getElement("message-search");
+    if (searchInput && !searchInput.dataset.jtchBound) {
+      addEventListenerWithCleanup(searchInput, "input", (event) => {
+        ns.features.applySearchState({ term: event.target.value });
+      });
+      addEventListenerWithCleanup(searchInput, "keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          ns.features.applySearchState({ term: "" });
+        }
+      });
+      searchInput.dataset.jtchBound = "true";
+    }
+
+    const messageList = getElement("message-list");
+    if (messageList && !messageList.dataset.jtchBound) {
+      addEventListenerWithCleanup(messageList, "click", handleListInteraction);
+      addEventListenerWithCleanup(messageList, "keydown", handleListKeydown);
+      messageList.dataset.jtchBound = "true";
+    }
   }
 
   function startObserver() {
@@ -303,17 +278,12 @@
     state.conversation.id = ns.utils.getConversationId(currentUrl);
     state.ui.search = {
       term: "",
-      isRegex: false,
-      caseSensitive: false,
-      lastError: null,
-      matcher: null,
-      lastValidMatcher: null,
       matchCount: 0,
     };
     state.ui.selectedMessageIndex = -1;
     state.ui.virtualization.start = 0;
-    ns.features.setStatus("", "info");
     startObserver();
+    syncHostUi();
     if (state.ui.sidebarVisible) {
       refreshMessages();
     }
@@ -331,9 +301,7 @@
 
   function startThemeWatcher() {
     const observer = new MutationObserver(() => {
-      if (state.ui.themePreference === "system-like") {
-        ns.features.updateThemeUi();
-      }
+      ns.features.updateThemeUi();
     });
     observer.observe(document.documentElement, {
       attributes: true,
@@ -341,6 +309,31 @@
     });
     state.runtime.hostThemeObserver = observer;
     registerCleanup(() => observer.disconnect());
+  }
+
+  function startHostUiWatcher() {
+    if (state.runtime.hostUiObserver) {
+      state.runtime.hostUiObserver.disconnect();
+    }
+
+    const sync = ns.utils.createDebouncer(syncHostUi, ns.config.hostUiSyncDelay);
+    state.runtime.hostUiSync = sync;
+
+    const observer = new MutationObserver(() => {
+      sync();
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+    state.runtime.hostUiObserver = observer;
+
+    registerCleanup(() => {
+      observer.disconnect();
+      sync.cancel?.();
+      state.runtime.hostUiObserver = null;
+      state.runtime.hostUiSync = null;
+    });
   }
 
   function cleanup() {
@@ -367,13 +360,18 @@
     ns.ui.ensureUiRoot();
     bindUi();
     ns.features.updateThemeUi();
-    ns.features.setCompact(state.ui.compact);
     syncSidebarVisibility();
     refreshMessages();
     startObserver();
     startRouteWatcher();
     startThemeWatcher();
+    startHostUiWatcher();
+    syncHostUi();
     addEventListenerWithCleanup(root, "beforeunload", cleanup);
+    addEventListenerWithCleanup(root, "resize", () => {
+      syncHostUi();
+      syncSidebarVisibility();
+    });
   }
 
   if (document.readyState === "loading") {
@@ -410,6 +408,7 @@
       refreshMessages,
       handleRouteChange,
       scheduleRefresh,
+      syncHostUi,
     };
   }
 })(globalThis);

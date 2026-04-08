@@ -5,6 +5,8 @@
     primaryMessageSelectors,
     fallbackMessageSelectors,
     chatContainerSelectors,
+    hostActionBarSelectors,
+    hostSidePanelSelectors,
   } = ns.constants;
 
   function safeQuerySelector(selectors, context = document) {
@@ -60,8 +62,50 @@
     return style.display !== "none" && style.visibility !== "hidden";
   }
 
+  function collapseText(value) {
+    return String(value || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
   function hasMeaningfulText(element) {
     return collapseText(element?.textContent || "").length >= 8;
+  }
+
+  function isChronoChatNode(element) {
+    if (!element) return false;
+    if (
+      element.id === "chatgpt-nav-sidebar" ||
+      element.id === "chatgpt-nav-toggle" ||
+      element.id === "chatgpt-nav-toggle-slot"
+    ) {
+      return true;
+    }
+    return Boolean(
+      element.closest?.(
+        "#chatgpt-nav-sidebar, #chatgpt-nav-toggle, #chatgpt-nav-toggle-slot",
+      ),
+    );
+  }
+
+  function isInteractiveElement(element) {
+    return Boolean(
+      element?.matches?.("button, [role='button'], a, summary"),
+    );
+  }
+
+  function getElementLabel(element) {
+    if (!element) return "";
+    return collapseText(
+      element.getAttribute?.("aria-label") ||
+        element.getAttribute?.("title") ||
+        element.textContent ||
+        "",
+    );
+  }
+
+  function getInteractiveElements(context) {
+    return safeQuerySelectorAll("button, [role='button'], a, summary", context).filter(
+      (element) => isVisibleElement(element) && !isChronoChatNode(element),
+    );
   }
 
   function filterRootMessageCandidates(nodes) {
@@ -69,7 +113,7 @@
       (node) =>
         isVisibleElement(node) &&
         hasMeaningfulText(node) &&
-        !node.closest?.("#chatgpt-nav-sidebar"),
+        !isChronoChatNode(node),
     );
 
     return candidates.filter((node) => {
@@ -185,10 +229,6 @@
     return index % 2 === 0 ? "user" : "assistant";
   }
 
-  function collapseText(value) {
-    return String(value || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
-  }
-
   function isLikelyUiArtifact(node) {
     if (!node) return false;
     return Boolean(
@@ -252,8 +292,208 @@
     return null;
   }
 
+  function getConversationActionBar() {
+    const explicit = safeQuerySelector(hostActionBarSelectors, document);
+    if (explicit && isVisibleElement(explicit)) {
+      return explicit;
+    }
+
+    const markers = getInteractiveElements(document).filter((element) => {
+      const label = getElementLabel(element);
+      return /share|activity/i.test(label);
+    });
+
+    const candidates = [];
+    const seen = new Set();
+
+    markers.forEach((marker) => {
+      let current = marker.parentElement;
+      let depth = 0;
+      while (current && current !== document.body && depth < 6) {
+        if (!seen.has(current) && isVisibleElement(current)) {
+          const interactiveCount = getInteractiveElements(current).length;
+          if (interactiveCount >= 2 && interactiveCount <= 8) {
+            seen.add(current);
+            candidates.push({ node: current, interactiveCount, depth });
+          }
+        }
+        current = current.parentElement;
+        depth += 1;
+      }
+    });
+
+    candidates.sort((left, right) => {
+      if (left.depth !== right.depth) {
+        return left.depth - right.depth;
+      }
+      return left.interactiveCount - right.interactiveCount;
+    });
+
+    return candidates[0]?.node || null;
+  }
+
+  function getConversationActionReference(actionBar) {
+    const elements = getInteractiveElements(actionBar);
+    return (
+      elements.find((element) => /share/i.test(getElementLabel(element))) ||
+      elements.find((element) => /activity/i.test(getElementLabel(element))) ||
+      elements[elements.length - 1] ||
+      null
+    );
+  }
+
+  function getHostLeftRail() {
+    const viewportHeight =
+      root.innerHeight || document.documentElement.clientHeight || 720;
+
+    const candidates = safeQuerySelectorAll(["aside", "nav", "div"], document).filter(
+      (element) => {
+        if (!isVisibleElement(element) || isChronoChatNode(element)) {
+          return false;
+        }
+        const rect = element.getBoundingClientRect?.();
+        if (!rect || rect.width < 56 || rect.width > 220) {
+          return false;
+        }
+        if (rect.height < viewportHeight * 0.5) {
+          return false;
+        }
+        return rect.left <= 12 && rect.right > rect.left;
+      },
+    );
+
+    candidates.sort((left, right) => {
+      const leftRect = left.getBoundingClientRect();
+      const rightRect = right.getBoundingClientRect();
+      return rightRect.width * rightRect.height - leftRect.width * leftRect.height;
+    });
+
+    return candidates[0] || null;
+  }
+
+  function getHostActivityToggle(actionBar = getConversationActionBar()) {
+    if (!actionBar) return null;
+    return (
+      getInteractiveElements(actionBar).find((element) =>
+        /activity/i.test(getElementLabel(element)),
+      ) || null
+    );
+  }
+
+  function isLikelyHostSidePanelFrame(element, viewportWidth) {
+    if (!isVisibleElement(element) || isChronoChatNode(element)) {
+      return false;
+    }
+    const rect = element.getBoundingClientRect?.();
+    if (!rect || rect.width < 180 || rect.height < 160) {
+      return false;
+    }
+    const occupiesRightRail =
+      rect.right >= viewportWidth - 12 &&
+      (rect.left >= viewportWidth * 0.45 || rect.width >= viewportWidth * 0.55);
+    if (!occupiesRightRail) {
+      return false;
+    }
+    const text = collapseText(element.textContent || "");
+    return /activity|sources|thinking/i.test(text);
+  }
+
+  function resolveHostSidePanelFrame(panel, viewportWidth) {
+    let resolved = panel;
+    let current = panel?.parentElement || null;
+
+    while (current && current !== document.body) {
+      if (isLikelyHostSidePanelFrame(current, viewportWidth)) {
+        const currentRect = current.getBoundingClientRect();
+        const resolvedRect = resolved.getBoundingClientRect?.();
+        const currentArea = currentRect.width * currentRect.height;
+        const resolvedArea = resolvedRect
+          ? resolvedRect.width * resolvedRect.height
+          : 0;
+        const currentHasCloseControl = Boolean(
+          getInteractiveElements(current).find(isCloseControl),
+        );
+        const resolvedHasCloseControl = Boolean(
+          getInteractiveElements(resolved).find(isCloseControl),
+        );
+        if (
+          (currentHasCloseControl && !resolvedHasCloseControl) ||
+          currentArea >= resolvedArea
+        ) {
+          resolved = current;
+        }
+      }
+      current = current.parentElement;
+    }
+
+    return resolved;
+  }
+
+  function isCloseControl(element) {
+    const label = getElementLabel(element);
+    return /(^[x×]$|close|dismiss|chiudi)/i.test(label);
+  }
+
+  function getHostSidePanel() {
+    const viewportWidth =
+      root.innerWidth || document.documentElement.clientWidth || 1280;
+    const explicit = safeQuerySelector(hostSidePanelSelectors, document);
+    if (explicit && isVisibleElement(explicit) && !isChronoChatNode(explicit)) {
+      return resolveHostSidePanelFrame(explicit, viewportWidth);
+    }
+
+    const candidates = safeQuerySelectorAll(
+      ["aside", "[role='dialog']", "section", "div"],
+      document,
+    ).filter((element) => {
+      return isLikelyHostSidePanelFrame(element, viewportWidth);
+    });
+
+    candidates.sort((left, right) => {
+      const leftRect = left.getBoundingClientRect();
+      const rightRect = right.getBoundingClientRect();
+      return rightRect.width * rightRect.height - leftRect.width * leftRect.height;
+    });
+
+    return resolveHostSidePanelFrame(candidates[0] || null, viewportWidth);
+  }
+
+  function getHostSidePanelCloseButton(panel) {
+    return getInteractiveElements(panel).find(isCloseControl) || null;
+  }
+
+  function getHostLeftRailWidth() {
+    const viewportHeight =
+      root.innerHeight || document.documentElement.clientHeight || 720;
+
+    const candidates = safeQuerySelectorAll(
+      ["aside", "nav", "[role='navigation']", "div"],
+      document,
+    ).filter((element) => {
+      if (!isVisibleElement(element) || isChronoChatNode(element)) {
+        return false;
+      }
+
+      const rect = element.getBoundingClientRect?.();
+      if (!rect || rect.width < 48 || rect.width > 240 || rect.height < viewportHeight * 0.45) {
+        return false;
+      }
+
+      if (rect.left > 16 || rect.right > 260) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return candidates.reduce((maxRight, element) => {
+      const rect = element.getBoundingClientRect?.();
+      return rect ? Math.max(maxRight, Math.round(rect.right)) : maxRight;
+    }, 0);
+  }
+
   function collectMessages() {
-    let container = getChatContainer();
+    const container = getChatContainer();
     const primaryNodes = safeQuerySelectorAll(
       primaryMessageSelectors,
       container || document,
@@ -310,5 +550,15 @@
     collapseText,
     filterRootMessageCandidates,
     isLikelyUiArtifact,
+    getConversationActionBar,
+    getConversationActionReference,
+    getHostLeftRail,
+    getHostActivityToggle,
+    getHostSidePanel,
+    getHostSidePanelCloseButton,
+    getHostLeftRailWidth,
+    getElementLabel,
+    getInteractiveElements,
+    isChronoChatNode,
   };
 })(globalThis);

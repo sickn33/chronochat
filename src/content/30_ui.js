@@ -1,5 +1,7 @@
 (function (root) {
   const ns = root.__JTC__;
+  let hostToggleButton = null;
+  let hostToggleSlot = null;
 
   function createButton({
     id,
@@ -41,60 +43,27 @@
     title.className = "jtch-title";
     title.textContent = "Conversation map";
 
+    const titleMeta = document.createElement("div");
+    titleMeta.className = "jtch-title-meta";
+
     const count = document.createElement("span");
     count.id = "message-count";
     count.className = "jtch-count";
     count.setAttribute("aria-live", "polite");
     count.textContent = "0";
 
-    const actions = document.createElement("div");
-    actions.className = "jtch-header-actions";
-
-    const themeButton = createButton({
-      id: "theme-toggle",
-      className: "jtch-icon-button",
-      text: "Auto",
-      label: "Cycle theme preference",
-      title: "Cycle theme preference",
-    });
-
-    const exportButton = createButton({
-      id: "export-toggle",
-      className: "jtch-icon-button",
-      text: "Export",
-      label: "Open export menu",
-      title: "Open export menu",
-    });
-
     const closeButton = createButton({
       id: "sidebar-close",
-      className: "jtch-icon-button",
-      text: "Close",
+      className: "jtch-icon-button jtch-sidebar-close",
+      text: "×",
       label: "Close sidebar",
       title: "Close sidebar",
     });
 
-    const exportMenu = document.createElement("div");
-    exportMenu.id = "export-menu";
-    exportMenu.className = "jtch-export-menu hidden";
-    ["json", "csv", "md"].forEach((format) => {
-      exportMenu.appendChild(
-        createButton({
-          className: "jtch-export-option",
-          text: format.toUpperCase(),
-          label: `Export ${format.toUpperCase()}`,
-          dataset: { format },
-        }),
-      );
-    });
-
-    actions.appendChild(themeButton);
-    actions.appendChild(exportButton);
-    actions.appendChild(closeButton);
-
+    titleMeta.appendChild(count);
+    titleMeta.appendChild(closeButton);
     titleRow.appendChild(title);
-    titleRow.appendChild(count);
-    titleRow.appendChild(actions);
+    titleRow.appendChild(titleMeta);
 
     const filterGroup = document.createElement("div");
     filterGroup.className = "jtch-filter-group";
@@ -124,77 +93,16 @@
     searchInput.placeholder = "Search messages";
     searchInput.setAttribute("aria-label", "Search messages");
 
-    const regexButton = createButton({
-      id: "regex-toggle",
-      className: "jtch-search-toggle",
-      text: ".*",
-      label: "Toggle regex search",
-      title: "Toggle regex search",
-    });
-
-    const caseButton = createButton({
-      id: "case-toggle",
-      className: "jtch-search-toggle",
-      text: "Aa",
-      label: "Toggle case sensitivity",
-      title: "Toggle case sensitivity",
-    });
-
-    const clearSearch = createButton({
-      id: "search-clear",
-      className: "jtch-search-clear",
-      text: "Clear",
-      label: "Clear search",
-      title: "Clear search",
-    });
-
     searchRow.appendChild(searchInput);
-    searchRow.appendChild(regexButton);
-    searchRow.appendChild(caseButton);
-    searchRow.appendChild(clearSearch);
 
     const searchMeta = document.createElement("div");
     searchMeta.id = "search-meta";
     searchMeta.className = "jtch-search-meta";
 
-    const prefsRow = document.createElement("div");
-    prefsRow.className = "jtch-prefs";
-
-    const compactLabel = document.createElement("label");
-    compactLabel.className = "jtch-pref";
-    const compactCheckbox = document.createElement("input");
-    compactCheckbox.type = "checkbox";
-    compactCheckbox.id = "pref-compact";
-    compactLabel.appendChild(compactCheckbox);
-    compactLabel.appendChild(document.createTextNode(" Compact"));
-
-    const previewLabel = document.createElement("label");
-    previewLabel.className = "jtch-pref jtch-pref-select";
-    previewLabel.appendChild(document.createTextNode("Preview"));
-    const previewSelect = document.createElement("select");
-    previewSelect.id = "pref-preview-len";
-    [100, 140, 180, 220].forEach((value) => {
-      const option = document.createElement("option");
-      option.value = String(value);
-      option.textContent = `${value}`;
-      previewSelect.appendChild(option);
-    });
-    previewLabel.appendChild(previewSelect);
-
-    prefsRow.appendChild(compactLabel);
-    prefsRow.appendChild(previewLabel);
-
-    const status = document.createElement("div");
-    status.id = "jtch-status";
-    status.className = "jtch-status hidden";
-
     header.appendChild(titleRow);
-    header.appendChild(exportMenu);
     header.appendChild(filterGroup);
     header.appendChild(searchRow);
     header.appendChild(searchMeta);
-    header.appendChild(prefsRow);
-    header.appendChild(status);
 
     const messageSection = document.createElement("div");
     messageSection.className = "jtch-section jtch-message-section";
@@ -206,45 +114,99 @@
 
     messageSection.appendChild(messageList);
 
-    const resizeHandle = document.createElement("div");
-    resizeHandle.id = "sidebar-resize-handle";
-    resizeHandle.className = "jtch-resize-handle";
-    resizeHandle.setAttribute("aria-hidden", "true");
-
     sidebar.appendChild(header);
     sidebar.appendChild(messageSection);
-    sidebar.appendChild(resizeHandle);
     return sidebar;
   }
 
-  function createToggleButton() {
-    return createButton({
-      id: "chatgpt-nav-toggle",
-      className: "jtch-toggle-button",
-      text: "Chrono",
-      label: "Toggle ChronoChat sidebar",
-      title: "Open ChronoChat",
-    });
+  function getOrCreateHostToggleButton() {
+    const existing = document.getElementById("chatgpt-nav-toggle");
+    if (existing) {
+      hostToggleButton = existing;
+      return hostToggleButton;
+    }
+
+    if (!hostToggleButton) {
+      hostToggleButton = createButton({
+        id: "chatgpt-nav-toggle",
+        className: "jtch-host-toggle",
+        text: "Jump",
+        label: "Open ChronoChat",
+        title: "Open ChronoChat",
+      });
+    }
+
+    return hostToggleButton;
+  }
+
+  function getOrCreateHostToggleSlot() {
+    const existing = document.getElementById("chatgpt-nav-toggle-slot");
+    if (existing) {
+      hostToggleSlot = existing;
+      return hostToggleSlot;
+    }
+
+    if (!hostToggleSlot) {
+      hostToggleSlot = document.createElement("div");
+      hostToggleSlot.id = "chatgpt-nav-toggle-slot";
+      hostToggleSlot.className = "jtch-host-toggle-slot";
+    }
+
+    return hostToggleSlot;
+  }
+
+  function syncHostTogglePosition() {
+    const slot = getOrCreateHostToggleSlot();
+    const actionBar = ns.dom.getConversationActionBar();
+    const reference = actionBar
+      ? ns.dom.getConversationActionReference(actionBar)
+      : null;
+
+    if (!actionBar || !reference) {
+      slot.hidden = true;
+      slot.remove();
+      return { mounted: false, slot };
+    }
+
+    if (!slot.contains(getOrCreateHostToggleButton())) {
+      slot.appendChild(getOrCreateHostToggleButton());
+    }
+
+    if (slot.parentElement !== actionBar || slot.nextElementSibling !== reference) {
+      actionBar.insertBefore(slot, reference);
+    }
+
+    slot.hidden = Boolean(ns.state?.ui?.sidebarVisible);
+    return { mounted: true, slot };
+  }
+
+  function ensureHostToggleMounted() {
+    const toggle = getOrCreateHostToggleButton();
+    const slot = getOrCreateHostToggleSlot();
+    if (!slot.contains(toggle)) {
+      slot.appendChild(toggle);
+    }
+
+    const { mounted } = syncHostTogglePosition();
+
+    return { toggle, slot, mounted };
   }
 
   function ensureUiRoot() {
     let sidebar = document.getElementById("chatgpt-nav-sidebar");
-    let toggle = document.getElementById("chatgpt-nav-toggle");
-
-    if (!toggle) {
-      toggle = createToggleButton();
-      document.body.appendChild(toggle);
-    }
 
     if (!sidebar) {
       sidebar = createSidebar();
       document.body.appendChild(sidebar);
     }
 
-    return { sidebar, toggle };
+    const { toggle, slot, mounted } = ensureHostToggleMounted();
+    return { sidebar, toggle, toggleSlot: slot, toggleMounted: mounted };
   }
 
   ns.ui = {
     ensureUiRoot,
+    ensureHostToggleMounted,
+    syncHostTogglePosition,
   };
 })(globalThis);

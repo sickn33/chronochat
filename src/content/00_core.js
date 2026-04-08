@@ -31,8 +31,6 @@
 
   ns.config = {
     sidebarWidth: 336,
-    sidebarMinWidth: 280,
-    sidebarMaxWidth: 520,
     debounceDelay: 220,
     observerRetryDelay: 1500,
     highlightDuration: 900,
@@ -40,14 +38,12 @@
     virtualListThreshold: 80,
     virtualListPageSize: 60,
     maxPreviewLength: 160,
+    hostUiSyncDelay: 80,
+    hostUiOpenDelay: root.__CHRONOCHAT_TEST__ ? 0 : 160,
   };
 
   ns.constants = {
-    storage: {
-      prefs: "jtch_v2_prefs",
-      theme: "jtch_v2_theme",
-      sidebarWidth: "jtch_v2_sidebar_width",
-    },
+    storage: {},
     filters: ["all", "user", "assistant"],
     primaryMessageSelectors: [
       "div[data-message-author-role]",
@@ -65,6 +61,18 @@
       ".conversation-content",
       "div[class*='--thread-content-margin'][class*='px-(--thread-content-margin)']",
       "div.flex-1[class*='max-w-(--thread-content-max-width)']",
+    ],
+    hostActionBarSelectors: [
+      '[data-testid="conversation-actions"]',
+      "[data-testid*='conversation'][data-testid*='actions']",
+      "header [class*='actions']",
+      "header [class*='toolbar']",
+      "header [class*='controls']",
+    ],
+    hostSidePanelSelectors: [
+      '[data-testid="activity-panel"]',
+      "[data-testid*='activity'][data-testid*='panel']",
+      "[data-panel='activity']",
     ],
     supportedHosts: ["chat.openai.com", "chatgpt.com"],
   };
@@ -137,19 +145,8 @@
       sidebarVisible: false,
       currentFilter: "all",
       selectedMessageIndex: -1,
-      sidebarWidth: ns.config.sidebarWidth,
-      compact: false,
-      previewLen: 120,
-      themePreference: "system-like",
-      effectiveTheme: "dark",
-      exportMenuVisible: false,
       search: {
         term: "",
-        isRegex: false,
-        caseSensitive: false,
-        lastError: null,
-        matcher: null,
-        lastValidMatcher: null,
         matchCount: 0,
       },
       virtualization: {
@@ -169,12 +166,10 @@
       lastUrl: root.location?.href || "",
       cleanupFns: [],
       refreshDebounced: null,
-      resizeFrame: null,
-      isResizing: false,
-      resizeStartX: 0,
-      resizeStartWidth: ns.config.sidebarWidth,
       hostThemeObserver: null,
+      hostUiObserver: null,
+      hostUiSync: null,
+      hostPanelOpen: false,
     },
   };
-
 })(globalThis);
