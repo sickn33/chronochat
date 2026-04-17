@@ -1,6 +1,6 @@
 {
   "name": "chronochat",
-  "version": "1.0.0",
+  "version": "1.2.5",
   "description": "A browser extension for ChatGPT that makes long conversations easier to navigate with search, filters, keyboard shortcuts, and fast jump navigation.",
   "main": "content_script.js",
   "homepage": "https://github.com/sickn33/chronochat",
@@ -22,6 +22,7 @@
     "build:minify:js": "terser content_script.js -o content_script.min.js --compress --mangle",
     "build:minify:css": "cleancss -o style.min.css style.css",
     "package:extension": "bash scripts/package-extension.sh",
+    "test:smoke": "npm run build && node scripts/test-smoke.js",
     "validate": "npm test -- --runInBand && npm run build",
     "prebuild": "echo 'Building production assets...'",
     "postbuild": "echo 'Build complete! Minified files ready.'"
@@ -57,14 +58,23 @@
   "keywords": [],
   "author": "ChronoChat",
   "license": "ISC",
+  "overrides": {
+    "brace-expansion": "^1.1.13",
+    "minimatch": "^3.1.4",
+    "picomatch": "^2.3.2"
+  },
   "devDependencies": {
     "@babel/core": "^7.29.0",
-    "@babel/preset-env": "^7.29.0",
-    "@types/chrome": "^0.1.36",
-    "babel-jest": "^29.7.0",
+    "@babel/preset-env": "^7.29.2",
+    "@types/chrome": "^0.1.40",
+    "babel-jest": "^30.3.0",
     "clean-css-cli": "^5.6.3",
-    "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0",
-    "terser": "^5.46.0"
+    "docx": "^9.6.1",
+    "esbuild": "^0.28.0",
+    "jest": "^30.3.0",
+    "jest-environment-jsdom": "^30.3.0",
+    "pdf-lib": "^1.17.1",
+    "playwright": "^1.59.1",
+    "terser": "^5.46.1"
   }
 }

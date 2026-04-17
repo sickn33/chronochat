@@ -273,12 +273,14 @@
         return {
           fullText: `Code: ${codeText}`,
           previewText: `Code: ${codeText}`,
+          contentNode,
         };
       }
 
       return {
         fullText: text,
         previewText: text,
+        contentNode,
       };
     }
 
@@ -286,6 +288,7 @@
       return {
         fullText: "Assistant generated an image",
         previewText: "Assistant generated an image",
+        contentNode,
       };
     }
 
@@ -532,10 +535,37 @@
         role: inferRole(node, index),
         preview: content.previewText,
         fullText: content.fullText,
-        domNode: node,
+        domNode: content.contentNode || node,
       });
       return messages;
     }, []);
+  }
+
+  function resolveMessageScrollTarget(node) {
+    if (!node || !node.isConnected) return null;
+
+    const roleAnchor = node.closest?.("[data-message-author-role]");
+    if (roleAnchor) return roleAnchor;
+
+    const conversationTurnAnchor = node.closest?.(
+      "[data-testid*='conversation-turn'], .group\\/conversation-turn, article[data-testid*='conversation-turn']",
+    );
+    if (conversationTurnAnchor) return conversationTurnAnchor;
+
+    let current = node;
+    while (current && current !== document.body) {
+      const className = String(current.className || "");
+      if (
+        className.includes("conversation-turn") ||
+        className.includes("assistant-message") ||
+        className.includes("user-message")
+      ) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+
+    return node;
   }
 
   ns.dom = {
@@ -560,5 +590,6 @@
     getElementLabel,
     getInteractiveElements,
     isChronoChatNode,
+    resolveMessageScrollTarget,
   };
 })(globalThis);

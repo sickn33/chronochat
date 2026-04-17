@@ -1,25 +1,26 @@
-const fs = require("fs");
 const path = require("path");
+const esbuild = require("esbuild");
 
 const projectRoot = path.resolve(__dirname, "..");
-const sourceDir = path.join(projectRoot, "src", "content");
 const outputFile = path.join(projectRoot, "content_script.js");
+const entryPoint = path.join(projectRoot, "src", "content", "index.js");
 
-const orderedFiles = [
-  "00_core.js",
-  "10_storage.js",
-  "20_dom.js",
-  "30_ui.js",
-  "40_features.js",
-  "50_runtime.js",
-];
-
-const header = `// Generated file. Source: src/content/*.js\n`;
-const content = orderedFiles
-  .map((fileName) => {
-    const fullPath = path.join(sourceDir, fileName);
-    return fs.readFileSync(fullPath, "utf8").trim();
+esbuild
+  .build({
+    entryPoints: [entryPoint],
+    outfile: outputFile,
+    bundle: true,
+    platform: "browser",
+    format: "iife",
+    target: ["chrome120"],
+    banner: {
+      js: "// Generated file. Source: src/content/index.js",
+    },
+    legalComments: "none",
+    minify: false,
+    sourcemap: false,
   })
-  .join("\n\n");
-
-fs.writeFileSync(outputFile, header + content + "\n");
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

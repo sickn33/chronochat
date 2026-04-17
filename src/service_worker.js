@@ -1,16 +1,42 @@
 (function (root) {
+  const SUPPORTED_HOSTS = new Set(["chat.openai.com", "chatgpt.com"]);
+
+  function getHostname(url) {
+    try {
+      return new URL(url).hostname;
+    } catch (error) {
+      return null;
+    }
+  }
+
   function isChatTab(tab) {
-    return Boolean(
-      tab &&
-        tab.id &&
-        tab.url &&
-        (tab.url.includes("chat.openai.com") || tab.url.includes("chatgpt.com")),
-    );
+    const hostname = tab?.url ? getHostname(tab.url) : null;
+    return Boolean(tab?.id && hostname && SUPPORTED_HOSTS.has(hostname));
   }
 
   function sendToggle(tabId) {
     try {
-      chrome.tabs.sendMessage(tabId, { action: "toggle-sidebar" });
+      const reportError = (error) => {
+        console.error("ChronoChat: Failed to send toggle message", tabId, error);
+      };
+
+      const maybePromise = chrome.tabs.sendMessage(
+        tabId,
+        {
+          action: "toggle-sidebar",
+        },
+        () => {
+          const lastError = chrome.runtime?.lastError;
+          if (lastError) {
+            reportError(lastError);
+          }
+        },
+      );
+
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.catch(reportError);
+        return;
+      }
     } catch (error) {
       console.error("ChronoChat: Failed to send toggle message", tabId, error);
     }

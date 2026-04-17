@@ -32,6 +32,16 @@ describe("Build and style contracts", () => {
     expect(packageJson.scripts["build:style"]).toContain("build-style.js");
   });
 
+  test("content build script uses esbuild from an explicit index entrypoint", () => {
+    const script = fs.readFileSync(
+      path.resolve(process.cwd(), "scripts/build-content.js"),
+      "utf8",
+    );
+    expect(script).toContain("esbuild");
+    expect(script).toContain("src/content/index.js");
+    expect(script).toContain("bundle");
+  });
+
   test("manifest icon files exist", () => {
     const manifest = JSON.parse(
       fs.readFileSync(path.resolve(process.cwd(), "manifest.json"), "utf8"),

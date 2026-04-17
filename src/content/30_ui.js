@@ -61,6 +61,48 @@
     });
 
     titleMeta.appendChild(count);
+    const exportGroup = document.createElement("div");
+    exportGroup.className = "jtch-export-group";
+
+    const exportToggle = createButton({
+      id: "export-toggle",
+      className: "jtch-export-toggle jtch-icon-button",
+      text: "Export",
+      label: "Export conversation",
+      title: "Export conversation",
+      dataset: {
+        exportMenuToggle: "true",
+      },
+    });
+    exportToggle.setAttribute("aria-haspopup", "menu");
+    exportToggle.setAttribute("aria-expanded", "false");
+
+    const exportMenu = document.createElement("div");
+    exportMenu.id = "export-menu";
+    exportMenu.className = "jtch-export-menu";
+    exportMenu.setAttribute("role", "menu");
+    exportMenu.hidden = true;
+
+    [
+      { label: "JSON", value: "json" },
+      { label: "CSV", value: "csv" },
+      { label: "Markdown", value: "markdown" },
+      { label: "DOCX", value: "docx" },
+      { label: "PDF", value: "pdf" },
+    ].forEach((format) => {
+      exportMenu.appendChild(
+        createButton({
+          className: "jtch-export-item",
+          text: format.label,
+          label: `Export as ${format.label}`,
+          dataset: { exportFormat: format.value },
+        }),
+      );
+    });
+
+    exportGroup.appendChild(exportToggle);
+    exportGroup.appendChild(exportMenu);
+    titleMeta.appendChild(exportGroup);
     titleMeta.appendChild(closeButton);
     titleRow.appendChild(title);
     titleRow.appendChild(titleMeta);
@@ -201,7 +243,14 @@
     }
 
     const { toggle, slot, mounted } = ensureHostToggleMounted();
-    return { sidebar, toggle, toggleSlot: slot, toggleMounted: mounted };
+    return {
+      sidebar,
+      toggle,
+      toggleSlot: slot,
+      toggleMounted: mounted,
+      exportToggle: document.getElementById("export-toggle"),
+      exportMenu: document.getElementById("export-menu"),
+    };
   }
 
   ns.ui = {

@@ -61,6 +61,12 @@
         : "0px";
       chatContainer.style.marginRight = "0px";
     }
+
+    if (!state.ui.sidebarVisible) {
+      ns.features.closeExportMenu?.();
+    } else {
+      ns.features.updateExportMenuUi?.();
+    }
   }
 
   function refreshMessages() {
@@ -89,6 +95,7 @@
 
     state.ui.sidebarVisible = false;
     syncSidebarVisibility();
+    ns.features.closeExportMenu?.();
     ns.features.clearSelection();
   }
 
@@ -96,9 +103,12 @@
     const actionTarget = event.target.closest("[data-action='load-older']");
     if (actionTarget) {
       event.preventDefault();
+      const currentStart = Number.isInteger(state.ui.virtualization.start)
+        ? state.ui.virtualization.start
+        : 0;
       state.ui.virtualization.start = Math.max(
         0,
-        state.ui.virtualization.start - ns.config.virtualListPageSize,
+        currentStart - ns.config.virtualListPageSize,
       );
       ns.features.renderFiltersAndMessages();
       return;
@@ -125,10 +135,41 @@
     event.stopPropagation();
   }
 
+  function handleDocumentClick(event) {
+    if (!state.ui.exportMenuOpen) return;
+    const target = event.target;
+    if (target?.closest?.("#chatgpt-nav-sidebar, #export-menu, #export-toggle")) return;
+    ns.features.closeExportMenu?.();
+  }
+
+  function handleExportAction(event) {
+    const button = event.target.closest("[data-export-format]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    ns.features.exportConversation(button.dataset.exportFormat);
+    ns.features.closeExportMenu?.();
+  }
+
   function handleGlobalKeydown(event) {
     const target = event.target;
     const searchInput = getElement("message-search");
+    const exportMenu = getElement("export-menu");
+    const exportToggle = getElement("export-toggle");
+    const isExportMenuFocused = Boolean(exportMenu?.contains(target));
+    const isExportToggleFocused = target === exportToggle;
     const isSearchFocused = searchInput && target === searchInput;
+
+    if (state.ui.exportMenuOpen) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        ns.features.closeExportMenu({ restoreFocus: true });
+      }
+      if (isExportMenuFocused || isExportToggleFocused) {
+        return;
+      }
+      return;
+    }
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "j") {
       event.preventDefault();
@@ -136,7 +177,19 @@
       return;
     }
 
-    if (ns.utils.isTypingTarget(target) && !isSearchFocused) {
+    if (isSearchFocused) {
+      if (event.key === "Escape") {
+        if (searchInput.value) {
+          ns.features.applySearchState({ term: "" });
+        } else {
+          searchInput.blur();
+        }
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (ns.utils.isTypingTarget(target)) {
       return;
     }
 
@@ -144,15 +197,7 @@
 
     switch (event.key) {
       case "Escape":
-        if (isSearchFocused) {
-          if (searchInput.value) {
-            ns.features.applySearchState({ term: "" });
-          } else {
-            searchInput.blur();
-          }
-        } else {
-          toggleSidebar(false);
-        }
+        toggleSidebar(false);
         event.preventDefault();
         break;
       case "/":
@@ -188,6 +233,10 @@
   function bindUi() {
     bindUiElements();
     addEventListenerWithCleanup(document, "keydown", handleGlobalKeydown);
+    if (!state.runtime.documentClickBound) {
+      addEventListenerWithCleanup(document, "click", handleDocumentClick);
+      state.runtime.documentClickBound = true;
+    }
   }
 
   function bindUiElements() {
@@ -239,6 +288,28 @@
       searchInput.dataset.jtchBound = "true";
     }
 
+    const exportToggle = getElement("export-toggle");
+    if (exportToggle && !exportToggle.dataset.jtchBound) {
+      addEventListenerWithCleanup(exportToggle, "click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        ns.features.toggleExportMenu();
+      });
+      exportToggle.dataset.jtchBound = "true";
+    }
+
+    const exportMenu = getElement("export-menu");
+    if (exportMenu && !exportMenu.dataset.jtchBound) {
+      addEventListenerWithCleanup(exportMenu, "click", handleExportAction);
+      addEventListenerWithCleanup(exportMenu, "keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          ns.features.closeExportMenu({ restoreFocus: true });
+        }
+      });
+      exportMenu.dataset.jtchBound = "true";
+    }
+
     const messageList = getElement("message-list");
     if (messageList && !messageList.dataset.jtchBound) {
       addEventListenerWithCleanup(messageList, "click", handleListInteraction);
@@ -251,10 +322,17 @@
     if (state.runtime.observer) {
       state.runtime.observer.disconnect();
     }
+    if (state.runtime.observerRetryId) {
+      root.clearTimeout(state.runtime.observerRetryId);
+      state.runtime.observerRetryId = null;
+    }
 
     const chatContainer = ns.dom.getChatContainer();
     if (!chatContainer) {
-      root.setTimeout(startObserver, ns.config.observerRetryDelay);
+      state.runtime.observerRetryId = root.setTimeout(() => {
+        state.runtime.observerRetryId = null;
+        startObserver();
+      }, ns.config.observerRetryDelay);
       return;
     }
 
@@ -281,7 +359,8 @@
       matchCount: 0,
     };
     state.ui.selectedMessageIndex = -1;
-    state.ui.virtualization.start = 0;
+    state.ui.exportMenuOpen = false;
+    state.ui.virtualization.start = null;
     startObserver();
     syncHostUi();
     if (state.ui.sidebarVisible) {
@@ -290,12 +369,48 @@
   }
 
   function startRouteWatcher() {
-    state.runtime.routeWatcherId = root.setInterval(handleRouteChange, 900);
+    const notifyRouteChange = ns.utils.createDebouncer(handleRouteChange, 120);
+    const history = root.history;
+
+    if (history && typeof history.pushState === "function") {
+      const originalPushState = history.pushState;
+      try {
+        history.pushState = function (...args) {
+          const result = originalPushState.apply(this, args);
+          notifyRouteChange();
+          return result;
+        };
+        registerCleanup(() => {
+          history.pushState = originalPushState;
+        });
+      } catch (_) {}
+    }
+
+    if (history && typeof history.replaceState === "function") {
+      const originalReplaceState = history.replaceState;
+      try {
+        history.replaceState = function (...args) {
+          const result = originalReplaceState.apply(this, args);
+          notifyRouteChange();
+          return result;
+        };
+        registerCleanup(() => {
+          history.replaceState = originalReplaceState;
+        });
+      } catch (_) {}
+    }
+
+    addEventListenerWithCleanup(root, "popstate", notifyRouteChange);
+    addEventListenerWithCleanup(root, "hashchange", notifyRouteChange);
+
+    // Lightweight fallback for host navigation patterns that bypass history APIs.
+    state.runtime.routeWatcherId = root.setInterval(handleRouteChange, 3500);
     registerCleanup(() => {
       if (state.runtime.routeWatcherId) {
         root.clearInterval(state.runtime.routeWatcherId);
         state.runtime.routeWatcherId = null;
       }
+      notifyRouteChange.cancel?.();
     });
   }
 
@@ -343,6 +458,10 @@
     if (state.runtime.observer) {
       state.runtime.observer.disconnect();
       state.runtime.observer = null;
+    }
+    if (state.runtime.observerRetryId) {
+      root.clearTimeout(state.runtime.observerRetryId);
+      state.runtime.observerRetryId = null;
     }
     while (state.runtime.cleanupFns.length > 0) {
       const fn = state.runtime.cleanupFns.pop();

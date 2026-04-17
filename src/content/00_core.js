@@ -131,13 +131,6 @@
         return "chat:unknown";
       }
     },
-    createFilenameTimestamp() {
-      return new Date()
-        .toISOString()
-        .replace(/:/g, "-")
-        .replace(/\..+/, "")
-        .replace("T", "_");
-    },
   };
 
   ns.state = {
@@ -145,12 +138,13 @@
       sidebarVisible: false,
       currentFilter: "all",
       selectedMessageIndex: -1,
+      exportMenuOpen: false,
       search: {
         term: "",
         matchCount: 0,
       },
       virtualization: {
-        start: 0,
+        start: null,
       },
     },
     conversation: {
@@ -161,6 +155,7 @@
     runtime: {
       initialized: false,
       observer: null,
+      observerRetryId: null,
       routeWatcherId: null,
       cachedChatContainer: null,
       lastUrl: root.location?.href || "",

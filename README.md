@@ -16,15 +16,14 @@ ChronoChat is a Manifest V3 browser extension for ChatGPT that adds a native-fee
 
 - Right-side conversation map for the current chat
 - Filters for `All`, `You`, and `AI`
-- Text search with optional regex and case sensitivity
+- Text search across the current conversation
+- Export Pro v1 for the full conversation as `JSON`, `CSV`, `Markdown`, `DOCX`, or `PDF`, preserving semantic message blocks (`heading`, `paragraph`, `list`, `quote`, `code`, `image`)
 - Keyboard navigation:
   - `Ctrl/Cmd + J`: open or close ChronoChat
   - `/`: focus search
   - `j` / `k`: move selection
   - `Enter`: jump to the selected message
   - `Esc`: close the sidebar or clear search focus state
-- Export as `JSON`, `CSV`, or `Markdown`
-- Resizable sidebar
 - Theme-aware UI with a ChatGPT-adjacent visual language
 
 ## Privacy
@@ -32,7 +31,6 @@ ChronoChat is a Manifest V3 browser extension for ChatGPT that adds a native-fee
 - No message content is sent to external services
 - No tracking or analytics
 - No remote fonts or third-party runtime requests
-- Preferences are stored locally through extension storage
 
 ## Supported Hosts
 
@@ -63,7 +61,7 @@ npm run build
 
 ### Firefox
 
-The project is designed primarily for Chromium MV3. Content-script behavior may work in Firefox, but background compatibility should be verified before relying on it for release.
+ChronoChat is a Chromium MV3 extension. Firefox is not a release target, and background compatibility should be verified separately before relying on it.
 
 ## Development
 
@@ -77,6 +75,12 @@ Run the full validation gate:
 
 ```bash
 npm run validate
+```
+
+Run the browser smoke check:
+
+```bash
+npm run test:smoke
 ```
 
 ## Architecture
@@ -98,8 +102,11 @@ The runtime stays vanilla, while the source stays modular and testable.
 ## Notes for Contributors
 
 - Keep UI changes visually aligned with ChatGPT, not brand-heavy
-- Prefer selector-first DOM parsing with resilient fallbacks
+- Prefer selector-first DOM parsing with resilient fallbacks, because ChatGPT markup can drift over time
+- Inline images are exported when recoverable; otherwise ChronoChat emits a standard image placeholder in rendered outputs
+- The semantic parser still falls back to heuristic text extraction for nested or non-text message content (complex widgets are a known limit)
 - Keep global preferences separate from transient UI state
+- Exporting the filtered subset of messages is backlog work; export v1 always emits the full conversation transcript
 - Add runtime tests for behavior changes instead of source-inspection placeholders
 
 ## License

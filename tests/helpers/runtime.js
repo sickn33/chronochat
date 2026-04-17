@@ -1,10 +1,12 @@
 import path from "path";
+import { TextEncoder, TextDecoder } from "util";
 
 const contentFiles = [
   "00_core.js",
   "10_storage.js",
   "20_dom.js",
   "30_ui.js",
+  "35_export_renderers.js",
   "40_features.js",
   "50_runtime.js",
 ];
@@ -65,6 +67,10 @@ export async function loadChronoChat({
   delete global.__ChronoChatTestApi;
   global.chrome = chromeMock;
   global.MutationObserver = window.MutationObserver;
+  global.TextEncoder = TextEncoder;
+  global.TextDecoder = TextDecoder;
+  window.TextEncoder = TextEncoder;
+  window.TextDecoder = TextDecoder;
   Element.prototype.scrollIntoView = jest.fn();
   global.URL.createObjectURL = jest.fn(() => "blob:jump");
   global.URL.revokeObjectURL = jest.fn();

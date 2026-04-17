@@ -56,7 +56,7 @@ describe("ChronoChat content script", () => {
     expect(actions?.children[1]?.textContent).toBe("Share");
   });
 
-  test("renders the minimal sidebar with only the retained controls", async () => {
+  test("renders the sidebar with export controls and the retained controls", async () => {
     const { api } = await loadChronoChat({
       html: createHostShell(`
         <div data-message-author-role="user"><div>Alpha launch details</div></div>
@@ -68,20 +68,72 @@ describe("ChronoChat content script", () => {
     await flushAsync();
 
     expect(document.getElementById("sidebar-close")).not.toBeNull();
+    expect(document.getElementById("export-toggle")).not.toBeNull();
+    expect(document.getElementById("export-menu")).not.toBeNull();
     expect(document.getElementById("message-count")).not.toBeNull();
     expect(document.getElementById("filter-group")).not.toBeNull();
     expect(document.getElementById("message-search")).not.toBeNull();
     expect(document.getElementById("message-list")).not.toBeNull();
+    expect(document.querySelector(".jtch-header > .jtch-export-group")).toBeNull();
+    expect(document.querySelector(".jtch-title-meta > .jtch-export-group")).not.toBeNull();
+    expect(document.querySelector(".jtch-title-meta")?.contains(document.getElementById("export-toggle"))).toBe(true);
+    expect(document.querySelector(".jtch-title-meta")?.contains(document.getElementById("export-menu"))).toBe(true);
 
+    expect(document.getElementById("export-menu")?.hidden).toBe(true);
+    expect(
+      Array.from(document.querySelectorAll("#export-menu [data-export-format]")).map(
+        (node) => node.dataset.exportFormat,
+      ),
+    ).toEqual(["json", "csv", "markdown", "docx", "pdf"]);
+    expect(document.querySelector('#message-list li[data-message-index="0"]')?.classList.contains("role-user")).toBe(true);
+    expect(document.querySelector('#message-list li[data-message-index="1"]')?.classList.contains("role-assistant")).toBe(true);
+    expect(document.querySelector('#message-list li[data-message-index="0"]')?.dataset.role).toBe("user");
+    expect(document.querySelector('#message-list li[data-message-index="1"]')?.dataset.role).toBe("assistant");
+    expect(document.querySelector('#message-list li[data-message-index="0"] .jtch-role-badge')?.textContent).toBe("You");
+    expect(document.querySelector('#message-list li[data-message-index="1"] .jtch-role-badge')?.textContent).toBe("AI");
     expect(document.getElementById("theme-toggle")).toBeNull();
-    expect(document.getElementById("export-toggle")).toBeNull();
-    expect(document.getElementById("export-menu")).toBeNull();
     expect(document.getElementById("regex-toggle")).toBeNull();
     expect(document.getElementById("case-toggle")).toBeNull();
     expect(document.getElementById("search-clear")).toBeNull();
     expect(document.getElementById("pref-compact")).toBeNull();
     expect(document.getElementById("pref-preview-len")).toBeNull();
     expect(document.getElementById("sidebar-resize-handle")).toBeNull();
+  });
+
+  test("opens and closes the export menu through toggle, outside click, and Escape", async () => {
+    const { api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>Alpha launch details</div></div>
+        <div data-message-author-role="assistant"><div>beta release checklist</div></div>
+      `),
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const exportToggle = document.getElementById("export-toggle");
+    const exportMenu = document.getElementById("export-menu");
+    const outside = document.createElement("button");
+    outside.type = "button";
+    outside.textContent = "Outside";
+    document.body.appendChild(outside);
+
+    expect(exportMenu.hidden).toBe(true);
+
+    exportToggle.click();
+    expect(exportMenu.hidden).toBe(false);
+    expect(exportToggle.getAttribute("aria-expanded")).toBe("true");
+
+    outside.click();
+    expect(exportMenu.hidden).toBe(true);
+    expect(exportToggle.getAttribute("aria-expanded")).toBe("false");
+
+    exportToggle.click();
+    expect(exportMenu.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flushAsync();
+
+    expect(exportMenu.hidden).toBe(true);
+    expect(exportToggle.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("renders sidebar search on runtime data", async () => {
@@ -128,6 +180,37 @@ describe("ChronoChat content script", () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
+  test("typing in search input does not trigger global j/k/enter shortcuts", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>first user</div></div>
+        <div data-message-author-role="assistant"><div>assistant answer</div></div>
+      `),
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const search = document.getElementById("message-search");
+    search.focus();
+
+    ns.state.ui.selectedMessageIndex = -1;
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true }));
+    expect(ns.state.ui.selectedMessageIndex).toBe(-1);
+
+    ns.state.ui.selectedMessageIndex = 1;
+    Element.prototype.scrollIntoView.mockClear();
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    search.value = "assistant";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flushAsync();
+    expect(search.value).toBe("");
+    expect(ns.state.ui.search.term).toBe("");
+  });
+
   test("route change resets conversation state only", async () => {
     const { ns, api } = await loadChronoChat({
       pathname: "/c/chat-one",
@@ -146,6 +229,54 @@ describe("ChronoChat content script", () => {
     expect(ns.state.conversation.id).toBe("chat:chat-two");
     expect(ns.state.ui.search.term).toBe("");
     expect(ns.state.ui.selectedMessageIndex).toBe(-1);
+  });
+
+  test("pushState route change is detected without manual polling", async () => {
+    const { ns } = await loadChronoChat({
+      pathname: "/c/chat-alpha",
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>chat alpha user</div></div>
+        <div data-message-author-role="assistant"><div>chat alpha assistant</div></div>
+      `),
+    });
+
+    window.history.pushState({}, "", "/c/chat-beta");
+    await new Promise((resolve) => setTimeout(resolve, 180));
+
+    expect(ns.state.conversation.id).toBe("chat:chat-beta");
+  });
+
+  test("virtualization renders latest page first and supports loading earlier matches", async () => {
+    const rows = Array.from({ length: 120 }, (_, index) => {
+      const role = index % 2 === 0 ? "user" : "assistant";
+      return `<div data-message-author-role="${role}"><div>message ${index}</div></div>`;
+    }).join("\n");
+
+    const { api } = await loadChronoChat({
+      html: createHostShell(rows),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const initialItems = Array.from(
+      document.querySelectorAll("#message-list li[data-message-index]"),
+    );
+    expect(initialItems.length).toBe(60);
+    expect(document.querySelector("#message-list li[data-action='load-older']")).not.toBeNull();
+    expect(Number(initialItems[0].dataset.messageIndex)).toBe(60);
+
+    document
+      .querySelector("#message-list li[data-action='load-older']")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flushAsync();
+
+    const olderItems = Array.from(
+      document.querySelectorAll("#message-list li[data-message-index]"),
+    );
+    expect(olderItems.length).toBe(60);
+    expect(document.querySelector("#message-list li[data-action='load-older']")).toBeNull();
+    expect(Number(olderItems[0].dataset.messageIndex)).toBe(0);
   });
 
   test("clicking the host toggle opens ChronoChat even if Activity is present", async () => {
@@ -572,6 +703,32 @@ describe("ChronoChat content script", () => {
     item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  test("long-message jump scrolls to the message root, not a nested content block", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>first user</div></div>
+        <div data-message-author-role="assistant" id="assistant-root">
+          <div class="markdown">
+            <div id="assistant-inner">Very long assistant response block...</div>
+          </div>
+        </div>
+      `),
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const assistantRoot = document.getElementById("assistant-root");
+    const assistantInner = document.getElementById("assistant-inner");
+    assistantRoot.scrollIntoView = jest.fn();
+    assistantInner.scrollIntoView = jest.fn();
+
+    ns.state.conversation.messages[1].domNode = assistantInner;
+    ns.features.scrollToMessage(1);
+
+    expect(assistantRoot.scrollIntoView).toHaveBeenCalled();
+    expect(assistantInner.scrollIntoView).not.toHaveBeenCalled();
   });
 
   test("recreated sidebar keeps close, filter, and message click interactions working", async () => {
