@@ -1,0 +1,58 @@
+name: Publish GitHub Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@sickn33"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension package
+        run: npm run package:extension
+
+      - name: Prepare npm package wrapper
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          mkdir -p .pkg-publish
+          cp packages/chronochat-extension.zip .pkg-publish/chronochat-extension.zip
+          cat > .pkg-publish/package.json <<EOF
+          {
+            "name": "@sickn33/chronochat-extension",
+            "version": "${VERSION}",
+            "description": "ChronoChat browser extension bundle for GitHub Packages",
+            "license": "ISC",
+            "repository": {
+              "type": "git",
+              "url": "https://github.com/sickn33/chronochat.git"
+            },
+            "files": [
+              "chronochat-extension.zip"
+            ],
+            "publishConfig": {
+              "registry": "https://npm.pkg.github.com"
+            }
+          }
+          EOF
+
+      - name: Publish to GitHub Packages
+        run: npm publish ./.pkg-publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
