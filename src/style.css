@@ -3,11 +3,84 @@
  * Generated to /style.css during build.
  */
 
+@font-face {
+  font-family: "OpenAI Sans";
+  src: url("assets/fonts/OpenAISans-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "OpenAI Sans";
+  src: url("assets/fonts/OpenAISans-RegularItalic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "OpenAI Sans";
+  src: url("assets/fonts/OpenAISans-Medium.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "OpenAI Sans";
+  src: url("assets/fonts/OpenAISans-MediumItalic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "OpenAI Sans";
+  src: url("assets/fonts/OpenAISans-Semibold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "OpenAI Sans";
+  src: url("assets/fonts/OpenAISans-SemiboldItalic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "OpenAI Sans";
+  src: url("assets/fonts/OpenAISans-Bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "OpenAI Sans";
+  src: url("assets/fonts/OpenAISans-BoldItalic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+}
+
 #chatgpt-nav-toggle-slot,
 #chatgpt-nav-toggle,
+#chatgpt-nav-edge-toggle,
 #chatgpt-nav-sidebar,
 #chatgpt-nav-sidebar * {
   box-sizing: border-box !important;
+}
+
+#chatgpt-nav-toggle-slot,
+#chatgpt-nav-toggle,
+#chatgpt-nav-edge-toggle,
+#chatgpt-nav-sidebar {
+  font-family: "OpenAI Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif !important;
 }
 
 #chatgpt-nav-toggle-slot {
@@ -30,8 +103,8 @@
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   background: rgba(32, 32, 32, 0.92) !important;
   color: #f3f4f6 !important;
-  font: 500 12px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif !important;
+  font: 500 12px/1 "OpenAI Sans", ui-sans-serif, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif !important;
   letter-spacing: 0.01em !important;
   cursor: pointer !important;
   backdrop-filter: blur(18px) !important;
@@ -67,6 +140,54 @@
   border-color: rgba(15, 23, 42, 0.14) !important;
 }
 
+#chatgpt-nav-edge-toggle {
+  align-items: center !important;
+  background: rgba(32, 32, 32, 0.94) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-left: 0 !important;
+  border-radius: 0 999px 999px 0 !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18) !important;
+  color: #f3f4f6 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  font: 600 11px/1 "OpenAI Sans", ui-sans-serif, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  height: 38px !important;
+  justify-content: center !important;
+  letter-spacing: 0 !important;
+  min-width: 34px !important;
+  padding: 0 12px 0 9px !important;
+  pointer-events: auto !important;
+  position: fixed !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  z-index: 2147483645 !important;
+  backdrop-filter: blur(18px) !important;
+  transition:
+    background-color 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease !important;
+}
+
+#chatgpt-nav-edge-toggle:hover {
+  background: rgba(48, 48, 48, 0.98) !important;
+  transform: translateY(-50%) translateX(2px) !important;
+}
+
+#chatgpt-nav-edge-toggle[hidden] {
+  display: none !important;
+}
+
+#chatgpt-nav-edge-toggle.theme-light {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  color: #111827 !important;
+}
+
+#chatgpt-nav-edge-toggle.theme-light:hover {
+  background: rgba(248, 250, 252, 0.98) !important;
+}
+
 #chatgpt-nav-sidebar {
   position: fixed !important;
   inset: 0 auto 0 0 !important;
@@ -84,8 +205,8 @@
   isolation: isolate !important;
   transform: translateX(-100%) !important;
   transition: transform 0.18s ease !important;
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif !important;
+  font-family: "OpenAI Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif !important;
   overflow: hidden !important;
 }
 
@@ -113,25 +234,15 @@
 
 .jtch-title-row {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
   gap: 10px !important;
   align-items: center !important;
 }
 
 .jtch-title-meta {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: flex-end !important;
-  gap: 8px !important;
-  flex-wrap: nowrap !important;
-  min-width: 0 !important;
-}
-
-.jtch-export-group {
-  position: relative !important;
   display: inline-flex !important;
-  flex: 0 0 auto !important;
-  min-width: 0 !important;
+  align-items: center !important;
+  gap: 8px !important;
 }
 
 .jtch-title {
@@ -150,10 +261,12 @@
   color: rgba(15, 23, 42, 0.56) !important;
 }
 
-.jtch-filter,
-.jtch-icon-button,
-.jtch-export-toggle,
-.jtch-export-item {
+	.jtch-filter,
+	.jtch-export-button,
+	.jtch-option-toggle,
+	.jtch-preview-size-button,
+	.jtch-attachment-action,
+	.jtch-icon-button {
   appearance: none !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   background: rgba(255, 255, 255, 0.04) !important;
@@ -163,30 +276,36 @@
     background-color 0.16s ease,
     border-color 0.16s ease,
     transform 0.16s ease !important;
-  font: 500 12px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif !important;
+  font: 500 12px/1 "OpenAI Sans", ui-sans-serif, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
-.theme-light .jtch-filter,
-.theme-light .jtch-icon-button,
-.theme-light .jtch-export-toggle,
-.theme-light .jtch-export-item {
+	.theme-light .jtch-filter,
+	.theme-light .jtch-export-button,
+	.theme-light .jtch-option-toggle,
+	.theme-light .jtch-preview-size-button,
+	.theme-light .jtch-attachment-action,
+	.theme-light .jtch-icon-button {
   border-color: rgba(15, 23, 42, 0.08) !important;
   background: rgba(15, 23, 42, 0.04) !important;
 }
 
-.jtch-filter:hover,
-.jtch-icon-button:hover,
-.jtch-export-toggle:hover,
-.jtch-export-item:hover {
+	.jtch-filter:hover,
+	.jtch-export-button:hover,
+	.jtch-option-toggle:hover,
+	.jtch-preview-size-button:hover,
+	.jtch-attachment-action:hover,
+	.jtch-icon-button:hover {
   background: rgba(255, 255, 255, 0.08) !important;
   transform: translateY(-1px) !important;
 }
 
-.theme-light .jtch-filter:hover,
-.theme-light .jtch-icon-button:hover,
-.theme-light .jtch-export-toggle:hover,
-.theme-light .jtch-export-item:hover {
+	.theme-light .jtch-filter:hover,
+	.theme-light .jtch-export-button:hover,
+	.theme-light .jtch-option-toggle:hover,
+	.theme-light .jtch-preview-size-button:hover,
+	.theme-light .jtch-attachment-action:hover,
+	.theme-light .jtch-icon-button:hover {
   background: rgba(15, 23, 42, 0.08) !important;
 }
 
@@ -200,83 +319,73 @@
   line-height: 1 !important;
 }
 
-.jtch-export-toggle {
-  min-width: 84px !important;
-  height: 32px !important;
-  padding: 0 12px !important;
-  border-radius: 999px !important;
-}
-
-.jtch-export-menu {
-  position: absolute !important;
-  top: calc(100% + 8px) !important;
-  right: 0 !important;
-  z-index: 3 !important;
-  min-width: 168px !important;
-  padding: 8px !important;
-  border-radius: 16px !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  background: rgba(20, 20, 20, 0.98) !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28) !important;
-  display: grid !important;
-  gap: 6px !important;
-}
-
-.theme-light .jtch-export-menu {
-  border-color: rgba(15, 23, 42, 0.08) !important;
-  background: rgba(255, 255, 255, 0.98) !important;
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12) !important;
-}
-
-.jtch-export-item {
-  width: 100% !important;
-  height: 34px !important;
-  border-radius: 12px !important;
-  padding: 0 12px !important;
-  justify-content: flex-start !important;
-  text-align: left !important;
-}
-
-#chatgpt-nav-toggle:focus-visible,
-.jtch-filter:focus-visible,
-.jtch-icon-button:focus-visible,
-.jtch-export-toggle:focus-visible,
-.jtch-export-item:focus-visible,
-.jtch-search-input:focus-visible {
+	#chatgpt-nav-toggle:focus-visible,
+	.jtch-filter:focus-visible,
+	.jtch-export-button:focus-visible,
+	.jtch-option-toggle:focus-visible,
+	.jtch-preview-size-button:focus-visible,
+	.jtch-attachment-action:focus-visible,
+	.jtch-icon-button:focus-visible,
+	.jtch-search-input:focus-visible {
   outline: none !important;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14) !important;
 }
 
-#chatgpt-nav-toggle.theme-light:focus-visible,
-.theme-light .jtch-filter:focus-visible,
-.theme-light .jtch-icon-button:focus-visible,
-.theme-light .jtch-export-toggle:focus-visible,
-.theme-light .jtch-export-item:focus-visible,
-.theme-light .jtch-search-input:focus-visible {
+	#chatgpt-nav-toggle.theme-light:focus-visible,
+	.theme-light .jtch-filter:focus-visible,
+	.theme-light .jtch-export-button:focus-visible,
+	.theme-light .jtch-option-toggle:focus-visible,
+	.theme-light .jtch-preview-size-button:focus-visible,
+	.theme-light .jtch-attachment-action:focus-visible,
+	.theme-light .jtch-icon-button:focus-visible,
+	.theme-light .jtch-search-input:focus-visible {
   box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.14) !important;
 }
 
-.jtch-filter-group {
+	.jtch-filter-group {
+	  display: grid !important;
+	  grid-template-columns: repeat(3, 1fr) !important;
+	  gap: 8px !important;
+	}
+
+.jtch-export-group,
+.jtch-search-options,
+.jtch-preview-controls {
   display: grid !important;
-  grid-template-columns: repeat(3, 1fr) !important;
+  grid-template-columns: repeat(4, 1fr) !important;
   gap: 8px !important;
 }
 
-.jtch-filter {
-  height: 30px !important;
-  border-radius: 999px !important;
-}
+	.jtch-search-options {
+	  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+	}
 
-.jtch-filter.active {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(255, 255, 255, 0.14) !important;
-  color: #f3f4f6 !important;
-}
+	.jtch-preview-controls {
+	  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+	}
 
-.theme-light .jtch-filter.active {
-  background: rgba(15, 23, 42, 0.06) !important;
-  border-color: rgba(15, 23, 42, 0.12) !important;
-  color: #111827 !important;
+	.jtch-filter,
+	.jtch-export-button,
+	.jtch-option-toggle,
+	.jtch-preview-size-button {
+	  height: 30px !important;
+	  border-radius: 8px !important;
+	}
+
+	.jtch-filter.active,
+	.jtch-option-toggle.active,
+	.jtch-preview-size-button[aria-pressed="true"] {
+	  background: rgba(255, 255, 255, 0.08) !important;
+	  border-color: rgba(255, 255, 255, 0.14) !important;
+	  color: #f3f4f6 !important;
+	}
+
+	.theme-light .jtch-filter.active,
+	.theme-light .jtch-option-toggle.active,
+	.theme-light .jtch-preview-size-button[aria-pressed="true"] {
+	  background: rgba(15, 23, 42, 0.06) !important;
+	  border-color: rgba(15, 23, 42, 0.12) !important;
+	  color: #111827 !important;
 }
 
 .jtch-search-row {
@@ -292,8 +401,8 @@
   background: rgba(255, 255, 255, 0.03) !important;
   color: inherit !important;
   padding: 0 12px !important;
-  font: 500 12px/1 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif !important;
+  font: 500 12px/1 "OpenAI Sans", ui-sans-serif, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
 .theme-light .jtch-search-input {
@@ -301,15 +410,305 @@
   background: rgba(15, 23, 42, 0.03) !important;
 }
 
-.jtch-search-meta {
+	.jtch-search-meta {
   min-height: 16px !important;
   font-size: 11px !important;
   line-height: 1.4 !important;
   color: rgba(255, 255, 255, 0.62) !important;
-}
+	}
+
+	.jtch-search-meta.error,
+	.jtch-search-meta[data-tone="error"] {
+	  color: #fca5a5 !important;
+	}
+
+	.theme-light .jtch-search-meta.error,
+	.theme-light .jtch-search-meta[data-tone="error"] {
+	  color: #b91c1c !important;
+	}
 
 .theme-light .jtch-search-meta {
   color: rgba(15, 23, 42, 0.56) !important;
+}
+
+.jtch-attachment-dropbox {
+  border-top: 1px solid rgba(255, 255, 255, 0.07) !important;
+  flex: 0 0 auto !important;
+  padding: 8px !important;
+}
+
+.jtch-attachment-dropbox[open] {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 14px 22px -22px rgba(0, 0, 0, 0.8) !important;
+}
+
+.theme-light .jtch-attachment-dropbox {
+  border-top-color: rgba(15, 23, 42, 0.07) !important;
+}
+
+.theme-light .jtch-attachment-dropbox[open] {
+  border-bottom-color: rgba(15, 23, 42, 0.14) !important;
+  box-shadow: 0 14px 20px -22px rgba(15, 23, 42, 0.45) !important;
+}
+
+.jtch-attachment-summary {
+  align-items: center !important;
+  cursor: pointer !important;
+  display: grid !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  gap: 10px !important;
+  grid-template-columns: 1fr auto auto !important;
+  list-style: none !important;
+  padding: 10px 10px 9px !important;
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  border: 1px solid transparent !important;
+}
+
+.jtch-attachment-summary:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-light .jtch-attachment-summary:hover {
+  background: rgba(15, 23, 42, 0.055) !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+.jtch-attachment-summary::-webkit-details-marker {
+  display: none !important;
+}
+
+.jtch-attachment-summary::before {
+  display: none !important;
+}
+
+.jtch-attachment-dropbox[open] .jtch-attachment-summary::before {
+  display: none !important;
+}
+
+.jtch-attachment-summary-body {
+  align-items: center !important;
+  display: grid !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+}
+
+.jtch-attachment-title {
+  color: inherit !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  line-height: 1.2 !important;
+}
+
+.jtch-attachment-types {
+  color: rgba(255, 255, 255, 0.58) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  line-height: 1.25 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.theme-light .jtch-attachment-types {
+  color: rgba(15, 23, 42, 0.56) !important;
+}
+
+.jtch-attachment-count {
+  align-items: center !important;
+  align-self: center !important;
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  font-size: 11px !important;
+  height: 22px !important;
+  justify-content: center !important;
+  min-width: 28px !important;
+  padding: 0 8px !important;
+}
+
+.theme-light .jtch-attachment-count {
+  background: rgba(15, 23, 42, 0.06) !important;
+}
+
+.jtch-attachment-caret {
+  align-items: center !important;
+  align-self: center !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  border-radius: 999px !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  display: inline-flex !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  height: 22px !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  transform: rotate(0deg) !important;
+  transition: transform 0.16s ease, background-color 0.16s ease !important;
+  width: 22px !important;
+}
+
+.jtch-attachment-dropbox[open] .jtch-attachment-caret {
+  background: rgba(255, 255, 255, 0.12) !important;
+  transform: rotate(90deg) !important;
+}
+
+.theme-light .jtch-attachment-caret {
+  background: rgba(15, 23, 42, 0.06) !important;
+  color: rgba(15, 23, 42, 0.68) !important;
+}
+
+.theme-light .jtch-attachment-dropbox[open] .jtch-attachment-caret {
+  background: rgba(15, 23, 42, 0.1) !important;
+}
+
+.jtch-attachment-list {
+  list-style: none !important;
+  margin: 0 !important;
+  max-height: 260px !important;
+  overflow-y: auto !important;
+  padding: 8px 0 0 !important;
+}
+
+.jtch-attachment-empty,
+.jtch-attachment-item {
+  align-items: center !important;
+  background: rgba(255, 255, 255, 0.045) !important;
+  border: 1px solid transparent !important;
+  border-radius: 12px !important;
+  color: inherit !important;
+  display: grid !important;
+  gap: 10px !important;
+  grid-template-columns: 42px minmax(0, 1fr) !important;
+  margin: 0 0 7px !important;
+  min-height: 72px !important;
+  padding: 10px !important;
+}
+
+.theme-light .jtch-attachment-empty,
+.theme-light .jtch-attachment-item {
+  background: rgba(15, 23, 42, 0.04) !important;
+}
+
+.jtch-attachment-item:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-light .jtch-attachment-item:hover {
+  background: rgba(15, 23, 42, 0.06) !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+.jtch-attachment-empty {
+  display: block !important;
+  font-size: 12px !important;
+  min-height: 0 !important;
+  padding: 10px 12px !important;
+  color: rgba(255, 255, 255, 0.62) !important;
+}
+
+.theme-light .jtch-attachment-empty {
+  color: rgba(15, 23, 42, 0.58) !important;
+}
+
+.jtch-attachment-preview {
+  align-items: center !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  display: inline-flex !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  height: 42px !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  width: 42px !important;
+}
+
+.theme-light .jtch-attachment-preview {
+  background: rgba(15, 23, 42, 0.07) !important;
+}
+
+.jtch-attachment-preview img {
+  height: 100% !important;
+  object-fit: cover !important;
+  width: 100% !important;
+}
+
+.jtch-attachment-body {
+  display: grid !important;
+  gap: 5px !important;
+  min-width: 0 !important;
+}
+
+.jtch-attachment-name {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.jtch-attachment-meta {
+  color: rgba(255, 255, 255, 0.58) !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 5px !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.theme-light .jtch-attachment-meta {
+  color: rgba(15, 23, 42, 0.56) !important;
+}
+
+.jtch-attachment-meta span {
+  align-items: center !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  min-width: 0 !important;
+  padding: 3px 7px !important;
+}
+
+.theme-light .jtch-attachment-meta span {
+  background: rgba(15, 23, 42, 0.055) !important;
+}
+
+.jtch-attachment-cache {
+  color: #86efac !important;
+}
+
+.theme-light .jtch-attachment-cache {
+  color: #047857 !important;
+}
+
+.jtch-attachment-actions {
+  display: flex !important;
+  gap: 6px !important;
+  grid-column: 1 / -1 !important;
+  justify-content: flex-end !important;
+}
+
+.jtch-attachment-action {
+  border-radius: 8px !important;
+  height: 28px !important;
+  min-width: 64px !important;
+  padding: 0 10px !important;
+}
+
+.jtch-attachment-action[data-attachment-action="open"] {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.theme-light .jtch-attachment-action[data-attachment-action="open"] {
+  background: rgba(15, 23, 42, 0.08) !important;
 }
 
 .jtch-section {
@@ -333,7 +732,6 @@
 .jtch-empty,
 .jtch-item,
 .jtch-load-older {
-  position: relative !important;
   display: grid !important;
   grid-template-columns: auto minmax(0, 1fr) !important;
   gap: 10px !important;
@@ -342,56 +740,11 @@
   margin: 0 0 8px !important;
   padding: 12px !important;
   border-radius: 16px !important;
-  border: 1px solid transparent !important;
-  background: rgba(255, 255, 255, 0.03) !important;
-  color: inherit !important;
-  cursor: pointer !important;
-}
-
-.jtch-item::before {
-  content: "" !important;
-  position: absolute !important;
-  inset: 12px auto 12px 10px !important;
-  width: 4px !important;
-  border-radius: 999px !important;
-  background: rgba(255, 255, 255, 0.12) !important;
-}
-
-.theme-light .jtch-item::before {
-  background: rgba(15, 23, 42, 0.12) !important;
-}
-
-.role-user::before {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.44),
-    rgba(255, 255, 255, 0.12)
-  ) !important;
-}
-
-.role-assistant::before {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.18),
-    rgba(255, 255, 255, 0.06)
-  ) !important;
-}
-
-.theme-light .role-user::before {
-  background: linear-gradient(
-    180deg,
-    rgba(15, 23, 42, 0.4),
-    rgba(15, 23, 42, 0.16)
-  ) !important;
-}
-
-.theme-light .role-assistant::before {
-  background: linear-gradient(
-    180deg,
-    rgba(15, 23, 42, 0.22),
-    rgba(15, 23, 42, 0.08)
-  ) !important;
-}
+	  border: 1px solid transparent !important;
+	  background: rgba(255, 255, 255, 0.03) !important;
+	  color: inherit !important;
+	  cursor: pointer !important;
+	}
 
 .theme-light .jtch-empty,
 .theme-light .jtch-item,
@@ -430,9 +783,7 @@
   padding: 0 10px !important;
   border-radius: 999px !important;
   font-size: 11px !important;
-  font-weight: 800 !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.08em !important;
+  font-weight: 700 !important;
   background: rgba(255, 255, 255, 0.08) !important;
   color: inherit !important;
 }
@@ -458,21 +809,41 @@
 }
 
 .jtch-item-text {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 4 !important;
   min-width: 0 !important;
   overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  font-size: 12px !important;
+  font-size: var(--jtch-preview-font-size, 12px) !important;
   line-height: 1.45 !important;
-  font-weight: 600 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
 }
 
-.role-user .jtch-item-text {
-  font-weight: 650 !important;
+.jtch-item-text strong,
+.jtch-preview-row.strong {
+  font-weight: 700 !important;
 }
 
-.role-assistant .jtch-item-text {
-  font-weight: 575 !important;
+.jtch-item-text em {
+  font-style: italic !important;
+}
+
+.jtch-item-text code,
+.jtch-preview-row.code {
+  border-radius: 4px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  padding: 1px 3px !important;
+}
+
+.theme-light .jtch-item-text code,
+.theme-light .jtch-preview-row.code {
+  background: rgba(15, 23, 42, 0.07) !important;
+}
+
+.jtch-preview-prefix {
+  opacity: 0.72 !important;
 }
 
 .jtch-empty {
@@ -491,9 +862,28 @@
   grid-template-columns: 1fr !important;
 }
 
-.jtch-target-highlight {
-  animation: jtchPulse 0.9s ease !important;
-}
+	.jtch-target-highlight {
+	  animation: jtchPulse 0.9s ease !important;
+	  scroll-margin-top: 96px !important;
+	}
+
+	.jtch-resize-handle {
+	  position: absolute !important;
+	  top: 0 !important;
+	  right: 0 !important;
+	  width: 14px !important;
+	  height: 100% !important;
+	  cursor: ew-resize !important;
+	  background: transparent !important;
+	  z-index: 5 !important;
+	  pointer-events: auto !important;
+	  touch-action: none !important;
+	}
+
+	.jtch-resize-handle:focus-visible {
+	  outline: none !important;
+	  background: rgba(255, 255, 255, 0.14) !important;
+	}
 
 @keyframes jtchPulse {
   0% {
@@ -505,8 +895,26 @@
   }
 }
 
-@media (max-width: 780px) {
-  #chatgpt-nav-sidebar {
-    width: min(92vw, 360px) !important;
-  }
-}
+	@media (max-width: 780px) {
+	  #chatgpt-nav-sidebar {
+	    width: min(92vw, 360px) !important;
+	  }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+	  #chatgpt-nav-sidebar,
+	  #chatgpt-nav-toggle,
+	  #chatgpt-nav-edge-toggle,
+	  .jtch-filter,
+	  .jtch-export-button,
+	  .jtch-option-toggle,
+	  .jtch-preview-size-button,
+	  .jtch-attachment-action,
+	  .jtch-icon-button {
+	    transition: none !important;
+	  }
+
+	  .jtch-target-highlight {
+	    animation: none !important;
+	  }
+	}

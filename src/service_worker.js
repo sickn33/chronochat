@@ -1,42 +1,27 @@
-(function (root) {
-  const SUPPORTED_HOSTS = new Set(["chat.openai.com", "chatgpt.com"]);
+  (function (root) {
+    const supportedHosts = new Set(["chat.openai.com", "chatgpt.com"]);
 
-  function getHostname(url) {
-    try {
-      return new URL(url).hostname;
-    } catch (error) {
-      return null;
+    function isSupportedChatUrl(url) {
+      try {
+        const parsed = new URL(url);
+        return parsed.protocol === "https:" && supportedHosts.has(parsed.hostname);
+      } catch (_) {
+        return false;
+      }
     }
-  }
 
-  function isChatTab(tab) {
-    const hostname = tab?.url ? getHostname(tab.url) : null;
-    return Boolean(tab?.id && hostname && SUPPORTED_HOSTS.has(hostname));
-  }
+    function isChatTab(tab) {
+      return Boolean(
+        tab &&
+          tab.id != null &&
+          tab.url &&
+          isSupportedChatUrl(tab.url),
+      );
+    }
 
   function sendToggle(tabId) {
     try {
-      const reportError = (error) => {
-        console.error("ChronoChat: Failed to send toggle message", tabId, error);
-      };
-
-      const maybePromise = chrome.tabs.sendMessage(
-        tabId,
-        {
-          action: "toggle-sidebar",
-        },
-        () => {
-          const lastError = chrome.runtime?.lastError;
-          if (lastError) {
-            reportError(lastError);
-          }
-        },
-      );
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise.catch(reportError);
-        return;
-      }
+      chrome.tabs.sendMessage(tabId, { action: "toggle-sidebar" });
     } catch (error) {
       console.error("ChronoChat: Failed to send toggle message", tabId, error);
     }
@@ -72,7 +57,8 @@
 
   if (root.__CHRONOCHAT_TEST__) {
     root.__ChronoChatServiceWorkerTestApi = {
-      isChatTab,
+        isChatTab,
+        isSupportedChatUrl,
       handleCommand,
       handleActionClick,
       getActiveChatTab,

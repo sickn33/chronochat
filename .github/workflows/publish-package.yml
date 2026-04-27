@@ -38,7 +38,7 @@ jobs:
             "name": "@sickn33/chronochat-extension",
             "version": "${VERSION}",
             "description": "ChronoChat browser extension bundle for GitHub Packages",
-            "license": "ISC",
+            "license": "MIT",
             "repository": {
               "type": "git",
               "url": "https://github.com/sickn33/chronochat.git"

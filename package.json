@@ -1,6 +1,6 @@
 {
   "name": "chronochat",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "A browser extension for ChatGPT that makes long conversations easier to navigate with search, filters, keyboard shortcuts, and fast jump navigation.",
   "main": "content_script.js",
   "homepage": "https://github.com/sickn33/chronochat",
@@ -14,18 +14,15 @@
   "scripts": {
     "test": "jest --coverage",
     "test:watch": "jest --watch",
-    "build": "npm run build:content && npm run build:service-worker && npm run build:style && npm run build:minify",
+    "build": "npm run build:content && npm run build:service-worker && npm run build:style",
     "build:content": "node scripts/build-content.js",
     "build:service-worker": "node scripts/build-service-worker.js",
     "build:style": "node scripts/build-style.js",
-    "build:minify": "npm run build:minify:js && npm run build:minify:css",
-    "build:minify:js": "terser content_script.js -o content_script.min.js --compress --mangle",
-    "build:minify:css": "cleancss -o style.min.css style.css",
-    "package:extension": "bash scripts/package-extension.sh",
+    "package:extension": "npm run build && bash scripts/package-extension.sh",
     "test:smoke": "npm run build && node scripts/test-smoke.js",
     "validate": "npm test -- --runInBand && npm run build",
     "prebuild": "echo 'Building production assets...'",
-    "postbuild": "echo 'Build complete! Minified files ready.'"
+    "postbuild": "echo 'Build complete! Manifest-backed files ready.'"
   },
   "jest": {
     "testEnvironment": "jsdom",
@@ -34,6 +31,8 @@
     ],
     "collectCoverageFrom": [
       "src/**/*.js",
+      "!src/content/35_export_renderers.js",
+      "!src/content/index.js",
       "!tests/**"
     ],
     "coverageThreshold": {
@@ -57,7 +56,7 @@
   },
   "keywords": [],
   "author": "ChronoChat",
-  "license": "ISC",
+  "license": "MIT",
   "overrides": {
     "brace-expansion": "^1.1.13",
     "minimatch": "^3.1.4",

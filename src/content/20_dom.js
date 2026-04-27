@@ -7,7 +7,9 @@
     chatContainerSelectors,
     hostActionBarSelectors,
     hostSidePanelSelectors,
+    fileExtensionPattern,
   } = ns.constants;
+  const fileExtensionRegex = new RegExp(fileExtensionPattern, "i");
 
   function safeQuerySelector(selectors, context = document) {
     const selectorArray = Array.isArray(selectors) ? selectors : [selectors];
@@ -66,8 +68,45 @@
     return String(value || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
   }
 
-  function hasMeaningfulText(element) {
-    return collapseText(element?.textContent || "").length >= 8;
+  function normalizeInlineText(value) {
+    return String(value || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function normalizeInlineMarkdown(value) {
+    return String(value || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((line) => line.replace(/[ \t]+/g, " ").trim())
+      .join("\n")
+      .replace(/\n{2,}/g, "\n")
+      .trim();
+  }
+
+  function cleanInlineMarkdown(value) {
+    return value
+      .replace(/[ \t]+([,.;:!?%)\]])/g, "$1")
+      .replace(/([([€$])[ \t]+/g, "$1")
+      .replace(/[ \t]+’/g, "’")
+      .trim();
+  }
+
+  function normalizeMarkdown(value) {
+    const lines = String(value || "")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((line) => line.replace(/[ \t]+$/g, ""));
+
+    while (lines.length && !lines[0].trim()) lines.shift();
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+
+    return lines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
   }
 
   function isChronoChatNode(element) {
@@ -75,13 +114,14 @@
     if (
       element.id === "chatgpt-nav-sidebar" ||
       element.id === "chatgpt-nav-toggle" ||
-      element.id === "chatgpt-nav-toggle-slot"
+      element.id === "chatgpt-nav-toggle-slot" ||
+      element.id === "chatgpt-nav-edge-toggle"
     ) {
       return true;
     }
     return Boolean(
       element.closest?.(
-        "#chatgpt-nav-sidebar, #chatgpt-nav-toggle, #chatgpt-nav-toggle-slot",
+        "#chatgpt-nav-sidebar, #chatgpt-nav-toggle, #chatgpt-nav-toggle-slot, #chatgpt-nav-edge-toggle",
       ),
     );
   }
@@ -92,6 +132,30 @@
     );
   }
 
+  function hasAttachmentSignal(element) {
+    return Boolean(
+      element?.querySelector?.(
+        [
+          "img[src]",
+          '[data-testid*="file" i]',
+          '[class*="file-tile" i]',
+          '[role="group"][aria-label]',
+          'canvas[data-testid="data-grid-canvas"]',
+          'table[role="grid"]',
+          '[role="grid"]',
+          "a[href][download]",
+        ].join(", "),
+      ),
+    );
+  }
+
+  function hasMeaningfulText(element) {
+    if (hasAttachmentSignal(element)) {
+      return true;
+    }
+    return collapseText(element?.textContent || "").length >= 8;
+  }
+
   function getElementLabel(element) {
     if (!element) return "";
     return collapseText(
@@ -100,6 +164,309 @@
         element.textContent ||
         "",
     );
+  }
+
+  function getUrl(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    try {
+      return new URL(raw, root.location?.href || "https://chatgpt.com/").href;
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  function getFilenameFromUrl(url) {
+    try {
+      const parsed = new URL(url, root.location?.href || "https://chatgpt.com/");
+      const last = parsed.pathname.split("/").filter(Boolean).pop() || "";
+      return decodeURIComponent(last);
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function getFileExtension(nameOrUrl) {
+    const match = String(nameOrUrl || "").match(/\.([a-z0-9]{2,5})(?:$|\?|#)/i);
+    return match ? match[1].toUpperCase() : "";
+  }
+
+  function getAttachmentKind(name, url, typeLabel) {
+    const value = `${name} ${url} ${typeLabel}`.toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|svg|heic|avif)(?:$|\?|#)/i.test(value)) return "image";
+    if (/image/.test(value)) return "image";
+    return "file";
+  }
+
+  function getAttachmentTypeLabel(name, url, fallback = "") {
+    const extension = getFileExtension(name) || getFileExtension(url);
+    return extension || collapseText(fallback).slice(0, 24) || "File";
+  }
+
+  function hashValue(value) {
+    let hash = 0;
+    const text = String(value || "");
+    for (let index = 0; index < text.length; index += 1) {
+      hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+    }
+    return hash.toString(36);
+  }
+
+  function createAttachment({
+    name,
+    url = "",
+    typeLabel = "",
+    kind,
+    messageIndex,
+    role,
+    domNode,
+    actionNode,
+    downloadNode,
+  }) {
+    const normalizedUrl = getUrl(url);
+    const fallbackName = getFilenameFromUrl(normalizedUrl);
+    const displayName = collapseText(name || fallbackName || "Untitled file");
+    const resolvedType = getAttachmentTypeLabel(displayName, normalizedUrl, typeLabel);
+    const resolvedKind = kind || getAttachmentKind(displayName, normalizedUrl, resolvedType);
+    const cacheSeed = `${state.conversation.id}|${messageIndex}|${role}|${displayName}|${normalizedUrl}`;
+    const cacheKey = hashValue(cacheSeed);
+    return {
+      id: `att-${messageIndex}-${cacheKey.slice(0, 10)}`,
+      cacheKey,
+      messageIndex,
+      role,
+      kind: resolvedKind,
+      name: displayName,
+      typeLabel: resolvedKind === "image" && resolvedType === "File" ? "Image" : resolvedType,
+      url: normalizedUrl,
+      thumbnailUrl: resolvedKind === "image" ? normalizedUrl : "",
+      domNode,
+      actionNode,
+      downloadNode,
+    };
+  }
+
+  function getDirectText(element) {
+    return collapseText(
+      Array.from(element?.childNodes || [])
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.nodeValue || "")
+        .join(" "),
+    );
+  }
+
+  function isLikelyFileTile(element) {
+    if (!element || isChronoChatNode(element)) return false;
+    const label = getElementLabel(element);
+    const className = String(element.className || "");
+    const hasFileClass = /file|attachment|upload/i.test(className);
+    const hasFileData =
+      /file|attachment|upload/i.test(element.getAttribute?.("data-testid") || "") ||
+      Boolean(element.querySelector?.('[data-testid*="file" i],[class*="file" i]'));
+    return Boolean(
+      label &&
+        (hasFileClass ||
+          hasFileData ||
+          fileExtensionRegex.test(label)),
+    );
+  }
+
+  function extractFileTileAttachment(tile, messageIndex, role) {
+    const label = getElementLabel(tile);
+    const link = tile.querySelector?.("a[href]");
+    const buttons = Array.from(tile.querySelectorAll("a[href], button, [role='button']"));
+    const downloadNode = buttons.find((button) =>
+      /download|save|scarica|salva/i.test(getElementLabel(button)),
+    );
+    const typeLabel =
+      collapseText(
+        Array.from(tile.querySelectorAll("div, span"))
+          .map((element) => element.textContent || "")
+          .find((text) => /\b(pdf|csv|docx?|xlsx?|pptx?|image|png|jpe?g|zip)\b/i.test(text)) ||
+          "",
+      ) || getFileExtension(label);
+    return createAttachment({
+      name: label,
+      url: link?.getAttribute?.("href") || "",
+      typeLabel,
+      messageIndex,
+      role,
+      domNode: tile,
+      downloadNode,
+    });
+  }
+
+  function extractImageAttachment(image, messageIndex, role) {
+    const src = image.getAttribute("src") || image.currentSrc || "";
+    if (!src) return null;
+    const name =
+      image.getAttribute("alt") ||
+      image.getAttribute("aria-label") ||
+      image.getAttribute("title") ||
+      getFilenameFromUrl(src) ||
+      `image-${messageIndex + 1}.png`;
+    return createAttachment({
+      name,
+      url: src,
+      typeLabel: "Image",
+      kind: "image",
+      messageIndex,
+      role,
+      domNode: image,
+    });
+  }
+
+  function extractLinkAttachment(link, messageIndex, role) {
+    const href = link.getAttribute("href") || "";
+    const label = getElementLabel(link) || getFilenameFromUrl(href);
+    if (!href || (!link.hasAttribute("download") && !fileExtensionRegex.test(`${href} ${label}`))) {
+      return null;
+    }
+    return createAttachment({
+      name: label || getFilenameFromUrl(href),
+      url: href,
+      messageIndex,
+      role,
+      domNode: link,
+    });
+  }
+
+  function isLikelySpreadsheetArtifact(element) {
+    if (!element || isChronoChatNode(element)) return false;
+    return Boolean(
+      element.querySelector?.(
+        'canvas[data-testid="data-grid-canvas"], table[role="grid"], [role="grid"]',
+      ),
+    );
+  }
+
+  function getSpreadsheetArtifactName(element) {
+    const candidates = Array.from(
+      element.querySelectorAll("span.font-semibold, [class*='font-semibold']"),
+    )
+      .map((candidate) => getDirectText(candidate) || getElementLabel(candidate))
+      .map((value) =>
+        value
+          .replace(/\bSheet\d+\b.*$/i, "")
+          .replace(/\bgrid\b.*$/i, "")
+          .trim(),
+      )
+      .filter(Boolean);
+    return candidates[0] || "Spreadsheet artifact";
+  }
+
+  function getSpreadsheetActionNode(element) {
+    const titleRow =
+      element.querySelector?.(".justify-between") ||
+      element.querySelector?.("[class*='justify-between']") ||
+      element;
+    return (
+      Array.from(titleRow.querySelectorAll("button"))
+        .filter((button) => button.getAttribute("role") !== "combobox")
+        .find((button) => isVisibleElement(button)) || null
+    );
+  }
+
+  function getSpreadsheetDownloadNode(element) {
+    const titleRow =
+      element.querySelector?.(".justify-between") ||
+      element.querySelector?.("[class*='justify-between']") ||
+      element;
+    const buttons = Array.from(titleRow.querySelectorAll("button")).filter(
+      (button) => button.getAttribute("role") !== "combobox" && isVisibleElement(button),
+    );
+    return (
+      buttons.find((button) => /download|save|scarica|salva/i.test(getElementLabel(button))) ||
+      buttons[1] ||
+      null
+    );
+  }
+
+  function extractSpreadsheetAttachment(element, messageIndex, role) {
+    return createAttachment({
+      name: getSpreadsheetArtifactName(element),
+      typeLabel: "Sheet",
+      kind: "spreadsheet",
+      messageIndex,
+      role,
+      domNode: element,
+      actionNode: getSpreadsheetActionNode(element),
+      downloadNode: getSpreadsheetDownloadNode(element),
+    });
+  }
+
+  function extractAttachments(node, messageIndex, role) {
+    const attachments = [];
+    const seen = new Set();
+    const push = (attachment) => {
+      if (!attachment) return;
+      const key = `${attachment.name}|${attachment.url}|${attachment.kind}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      attachments.push(attachment);
+    };
+
+    safeQuerySelectorAll(
+      '[role="group"][aria-label], [data-testid*="file" i], [class*="file-tile" i]',
+      node,
+    )
+      .filter(isLikelyFileTile)
+      .forEach((tile) => push(extractFileTileAttachment(tile, messageIndex, role)));
+
+    safeQuerySelectorAll(
+      'canvas[data-testid="data-grid-canvas"], table[role="grid"], [role="grid"]',
+      node,
+    ).forEach((grid) => {
+      const artifact =
+        grid.closest?.(".rounded-2xl") ||
+        grid.closest?.("[class*='rounded-2xl']") ||
+        grid.closest?.("[class*='overflow-hidden']") ||
+        grid.parentElement;
+      if (isLikelySpreadsheetArtifact(artifact)) {
+        push(extractSpreadsheetAttachment(artifact, messageIndex, role));
+      }
+    });
+
+    safeQuerySelectorAll("img[src]", node)
+      .filter(
+        (image) =>
+          isVisibleElement(image) &&
+          !isChronoChatNode(image) &&
+          !image.closest?.('[role="group"][aria-label]'),
+      )
+      .forEach((image) => push(extractImageAttachment(image, messageIndex, role)));
+
+    safeQuerySelectorAll("a[href]", node)
+      .filter(
+        (link) =>
+          !isChronoChatNode(link) && !link.closest?.('[role="group"][aria-label]'),
+      )
+      .forEach((link) => push(extractLinkAttachment(link, messageIndex, role)));
+
+    return attachments;
+  }
+
+  function getAttachmentIdentity(attachment) {
+    return `${attachment.name}|${attachment.url}|${attachment.kind}`;
+  }
+
+  function collectConversationAttachments(messages, rootNode) {
+    const attachments = [];
+    const seen = new Set();
+    const push = (attachment) => {
+      if (!attachment) return;
+      const identity = getAttachmentIdentity(attachment);
+      if (seen.has(identity)) return;
+      seen.add(identity);
+      attachments.push(attachment);
+    };
+
+    messages.forEach((message) => {
+      (message.attachments || []).forEach(push);
+    });
+
+    extractAttachments(rootNode || document, -1, "unknown").forEach(push);
+    return attachments;
   }
 
   function getInteractiveElements(context) {
@@ -238,6 +605,163 @@
     );
   }
 
+  function getInlineMarkdown(node) {
+    if (!node) return "";
+    if (node.nodeType === Node.TEXT_NODE) {
+      return normalizeInlineMarkdown(node.nodeValue);
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+
+    const tagName = node.tagName.toLowerCase();
+    if (tagName === "br") return "\n";
+    if (tagName === "code" && node.closest("pre") !== node.parentElement) {
+      const code = normalizeInlineText(node.textContent || "");
+      return code ? `\`${code.replace(/`/g, "\\`")}\`` : "";
+    }
+
+    const text = Array.from(node.childNodes)
+      .map(getInlineMarkdown)
+      .filter(Boolean)
+      .join(" ");
+
+    const normalized = cleanInlineMarkdown(
+      normalizeInlineMarkdown(text.replace(/[ \t]*\n[ \t]*/g, "\n")),
+    );
+    if (!normalized) return "";
+    if (tagName === "strong" || tagName === "b") return `**${normalized}**`;
+    if (tagName === "em" || tagName === "i") return `*${normalized}*`;
+    return normalized;
+  }
+
+  function getTableCellText(cell) {
+    return normalizeInlineText(cell.textContent || "").replace(/\|/g, "\\|");
+  }
+
+  function tableToMarkdown(table) {
+    const rows = Array.from(table.querySelectorAll("tr"))
+      .map((row) => Array.from(row.children).map(getTableCellText))
+      .filter((cells) => cells.length);
+    if (!rows.length) return "";
+
+    const columnCount = rows.reduce(
+      (max, row) => Math.max(max, row.length),
+      rows[0].length,
+    );
+    const normalizeRow = (row) =>
+      Array.from({ length: columnCount }, (_, index) => row[index] || "");
+    const [firstRow, ...restRows] = rows.map(normalizeRow);
+    const separator = Array.from({ length: columnCount }, () => "---");
+    return [firstRow, separator, ...restRows]
+      .map((row) => `| ${row.join(" | ")} |`)
+      .join("\n");
+  }
+
+  function codeFenceFromPre(pre) {
+    const codeNode = pre.querySelector?.("code") || pre;
+    const code = String(codeNode.textContent || "").replace(/\n+$/g, "");
+    if (!code.trim()) return "";
+    return `\`\`\`\n${code}\n\`\`\``;
+  }
+
+  function preWrapToMarkdown(element) {
+    const text = Array.from(element.childNodes)
+      .map((child) => {
+        if (child.nodeType === Node.TEXT_NODE) return child.nodeValue || "";
+        if (child.nodeType !== Node.ELEMENT_NODE) return "";
+        if (child.tagName.toLowerCase() === "br") return "\n";
+        return preWrapToMarkdown(child);
+      })
+      .join("");
+    return normalizeInlineMarkdown(text);
+  }
+
+  function listToMarkdown(list) {
+    const ordered = list.tagName.toLowerCase() === "ol";
+    return Array.from(list.children)
+      .filter((child) => child.tagName?.toLowerCase() === "li")
+      .map((item, index) => {
+        const marker = ordered ? `${index + 1}.` : "-";
+        const nestedLists = Array.from(item.querySelectorAll(":scope > ul, :scope > ol"));
+        const itemClone = item.cloneNode(true);
+        itemClone.querySelectorAll(":scope > ul, :scope > ol").forEach((nested) => {
+          nested.remove();
+        });
+        const label = getInlineMarkdown(itemClone);
+        const nested = nestedLists
+          .map(listToMarkdown)
+          .filter(Boolean)
+          .map((value) =>
+            value
+              .split("\n")
+              .map((line) => `  ${line}`)
+              .join("\n"),
+          )
+          .join("\n");
+        return `${marker} ${label}${nested ? `\n${nested}` : ""}`;
+      })
+      .join("\n");
+  }
+
+  function isBlockElement(element) {
+    return Boolean(
+      element?.matches?.(
+        "article, blockquote, div, h1, h2, h3, h4, h5, h6, li, main, ol, p, pre, section, table, ul",
+      ),
+    );
+  }
+
+  function elementToMarkdown(element) {
+    if (!element) return "";
+    if (element.nodeType === Node.TEXT_NODE) {
+      return normalizeInlineMarkdown(element.nodeValue);
+    }
+    if (element.nodeType !== Node.ELEMENT_NODE) return "";
+
+    const tagName = element.tagName.toLowerCase();
+    if (element.matches?.(".whitespace-pre-wrap")) return preWrapToMarkdown(element);
+    if (tagName === "pre") return codeFenceFromPre(element);
+    if (tagName === "table") return tableToMarkdown(element);
+    if (tagName === "ul" || tagName === "ol") return listToMarkdown(element);
+    if (/^h[1-6]$/.test(tagName)) {
+      const level = Number(tagName.slice(1));
+      const text = getInlineMarkdown(element);
+      return text ? `${"#".repeat(level)} ${text}` : "";
+    }
+    if (tagName === "blockquote") {
+      const content = childrenToMarkdown(element);
+      return content
+        .split("\n")
+        .map((line) => (line.trim() ? `> ${line}` : ">"))
+        .join("\n");
+    }
+    if (tagName === "p") return getInlineMarkdown(element);
+    if (tagName === "br") return "\n";
+
+    const directBlockChildren = Array.from(element.childNodes).filter(
+      (child) => child.nodeType === Node.ELEMENT_NODE && isBlockElement(child),
+    );
+    if (directBlockChildren.length) {
+      return childrenToMarkdown(element);
+    }
+
+    const inline = getInlineMarkdown(element);
+    if (inline.includes("\n")) return normalizeInlineMarkdown(inline);
+    return inline;
+  }
+
+  function childrenToMarkdown(element) {
+    return Array.from(element.childNodes)
+      .map(elementToMarkdown)
+      .filter((part) => part && part.trim())
+      .join("\n\n");
+  }
+
+  function extractStructuredMarkdown(contentNode) {
+    const markdown = normalizeMarkdown(elementToMarkdown(contentNode));
+    if (markdown) return markdown;
+    return normalizeMarkdown(contentNode.textContent || contentNode.innerText || "");
+  }
+
   function extractMessageContent(node) {
     if (isLikelyUiArtifact(node)) {
       return null;
@@ -264,31 +788,31 @@
       )
       .forEach((element) => element.remove());
 
-    const codeNode = clone.querySelector("pre code, code, pre");
-    const codeText = collapseText(codeNode?.textContent || "");
-    const text = collapseText(clone.textContent || clone.innerText || "");
+    const codeNodes = Array.from(clone.querySelectorAll("pre code, pre"));
+    const codeText = collapseText(
+      codeNodes.map((element) => element.textContent || "").join(" "),
+    );
+    const markdown = extractStructuredMarkdown(clone);
+    const text = collapseText(markdown || clone.textContent || clone.innerText || "");
 
     if (text) {
       if (codeText && text === codeText) {
         return {
-          fullText: `Code: ${codeText}`,
+          fullText: codeFenceFromPre(codeNodes[0]?.closest?.("pre") || codeNodes[0]),
           previewText: `Code: ${codeText}`,
-          contentNode,
         };
       }
 
       return {
-        fullText: text,
+        fullText: markdown || text,
         previewText: text,
-        contentNode,
       };
     }
 
-    if (node.querySelector('img, [class*="image"]')) {
+    if (hasAttachmentSignal(node)) {
       return {
-        fullText: "Assistant generated an image",
-        previewText: "Assistant generated an image",
-        contentNode,
+        fullText: "Message contains an image or attachment",
+        previewText: "Message contains an image or attachment",
       };
     }
 
@@ -524,48 +1048,31 @@
     let nodes = [...primarySet, ...fallbackSet];
     nodes = filterRootMessageCandidates(nodes);
 
-    return nodes.reduce((messages, node, index) => {
+    const messages = nodes.reduce((collectedMessages, node) => {
       const content = extractMessageContent(node);
       if (!content) {
-        return messages;
+        return collectedMessages;
       }
 
-      messages.push({
-        index: messages.length,
-        role: inferRole(node, index),
+      const messageIndex = collectedMessages.length;
+      const role = inferRole(node, messageIndex);
+      const attachments = extractAttachments(node, messageIndex, role);
+      collectedMessages.push({
+        index: messageIndex,
+        role,
         preview: content.previewText,
         fullText: content.fullText,
-        domNode: content.contentNode || node,
+        attachments,
+        domNode: node,
       });
-      return messages;
+      return collectedMessages;
     }, []);
-  }
 
-  function resolveMessageScrollTarget(node) {
-    if (!node || !node.isConnected) return null;
-
-    const roleAnchor = node.closest?.("[data-message-author-role]");
-    if (roleAnchor) return roleAnchor;
-
-    const conversationTurnAnchor = node.closest?.(
-      "[data-testid*='conversation-turn'], .group\\/conversation-turn, article[data-testid*='conversation-turn']",
+    state.conversation.attachments = collectConversationAttachments(
+      messages,
+      container || document,
     );
-    if (conversationTurnAnchor) return conversationTurnAnchor;
-
-    let current = node;
-    while (current && current !== document.body) {
-      const className = String(current.className || "");
-      if (
-        className.includes("conversation-turn") ||
-        className.includes("assistant-message") ||
-        className.includes("user-message")
-      ) {
-        return current;
-      }
-      current = current.parentElement;
-    }
-
-    return node;
+    return messages;
   }
 
   ns.dom = {
@@ -578,11 +1085,13 @@
     inferRole,
     collectMessages,
     collapseText,
+    normalizeMarkdown,
     filterRootMessageCandidates,
     isLikelyUiArtifact,
     getConversationActionBar,
     getConversationActionReference,
     getHostLeftRail,
+    extractAttachments,
     getHostActivityToggle,
     getHostSidePanel,
     getHostSidePanelCloseButton,
@@ -590,6 +1099,5 @@
     getElementLabel,
     getInteractiveElements,
     isChronoChatNode,
-    resolveMessageScrollTarget,
   };
 })(globalThis);

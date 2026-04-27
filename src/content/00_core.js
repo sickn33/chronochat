@@ -29,22 +29,32 @@
     error: logger("error"),
   };
 
-  ns.config = {
-    sidebarWidth: 336,
-    debounceDelay: 220,
-    observerRetryDelay: 1500,
-    highlightDuration: 900,
-    badgeFadeDuration: 1800,
+    ns.config = {
+      sidebarWidth: 336,
+      minSidebarWidth: 280,
+      maxSidebarWidth: 520,
+      previewFontSize: 12,
+      minPreviewFontSize: 11,
+      maxPreviewFontSize: 15,
+      debounceDelay: 220,
+      storageSaveDelay: 250,
+      observerRetryDelay: 1500,
+      highlightDuration: 900,
+      badgeFadeDuration: 1800,
     virtualListThreshold: 80,
     virtualListPageSize: 60,
-    maxPreviewLength: 160,
+    maxPreviewLength: 360,
     hostUiSyncDelay: 80,
     hostUiOpenDelay: root.__CHRONOCHAT_TEST__ ? 0 : 160,
   };
 
-  ns.constants = {
-    storage: {},
-    filters: ["all", "user", "assistant"],
+    ns.constants = {
+      storage: {
+        prefsKey: "jtch_v3_prefs",
+        attachmentDbName: "chronochat_attachments",
+        attachmentStoreName: "files",
+      },
+      filters: ["all", "user", "assistant"],
     primaryMessageSelectors: [
       "div[data-message-author-role]",
       "[data-testid*='conversation-turn']",
@@ -74,6 +84,8 @@
       "[data-testid*='activity'][data-testid*='panel']",
       "[data-panel='activity']",
     ],
+    fileExtensionPattern:
+      "\\.(pdf|csv|docx?|xlsx?|pptx?|txt|md|json|zip|png|jpe?g|gif|webp|svg|heic|avif)(\\?|#|$)",
     supportedHosts: ["chat.openai.com", "chatgpt.com"],
   };
 
@@ -117,19 +129,26 @@
         return false;
       }
     },
-    getConversationId(url) {
-      try {
-        const parsed = new URL(url, root.location?.origin || "https://chatgpt.com");
-        const path = parsed.pathname || "/";
-        const match = path.match(/\/c\/([^/]+)/);
-        if (match) return `chat:${match[1]}`;
-        if (path === "/" || path === "/?model=text-davinci-002-render-sha") {
-          return "chat:root";
-        }
-        return `path:${path}${parsed.search || ""}`;
+      getConversationId(url) {
+        try {
+          const parsed = new URL(url, root.location?.origin || "https://chatgpt.com");
+          const path = parsed.pathname || "/";
+          const match = path.match(/\/c\/([^/]+)/);
+          if (match) return `chat:${match[1]}`;
+          if (path === "/") {
+            return "chat:root";
+          }
+          return `path:${path}${parsed.search || ""}`;
       } catch (_) {
         return "chat:unknown";
       }
+    },
+    createFilenameTimestamp() {
+      return new Date()
+        .toISOString()
+        .replace(/:/g, "-")
+        .replace(/\..+/, "")
+        .replace("T", "_");
     },
   };
 
@@ -138,33 +157,49 @@
       sidebarVisible: false,
       currentFilter: "all",
       selectedMessageIndex: -1,
-      exportMenuOpen: false,
-      search: {
-        term: "",
-        matchCount: 0,
+        search: {
+          term: "",
+          matchCount: 0,
+          regex: false,
+          caseSensitive: false,
+          error: "",
+        },
+        status: "",
+        sidebarWidth: 336,
+        previewFontSize: 12,
+        virtualization: {
+          visibleStart: null,
+        },
       },
-      virtualization: {
-        start: null,
-      },
-    },
     conversation: {
       id: ns.utils.getConversationId(root.location?.href || "https://chatgpt.com/"),
       messages: [],
       visibleIndices: [],
+      attachments: [],
     },
     runtime: {
       initialized: false,
-      observer: null,
-      observerRetryId: null,
-      routeWatcherId: null,
-      cachedChatContainer: null,
-      lastUrl: root.location?.href || "",
-      cleanupFns: [],
-      refreshDebounced: null,
-      hostThemeObserver: null,
-      hostUiObserver: null,
-      hostUiSync: null,
-      hostPanelOpen: false,
-    },
-  };
+        observer: null,
+        observerRetryId: null,
+        routeWatcherId: null,
+        routeWatcherFallbackId: null,
+        originalHistoryMethods: null,
+        cachedChatContainer: null,
+        lastUrl: root.location?.href || "",
+        cleanupFns: [],
+        refreshDebounced: null,
+        savePrefsDebounced: null,
+        cachedAttachmentKeys: new Set(),
+        resizingSidebar: false,
+        hostThemeObserver: null,
+        hostUiObserver: null,
+        hostUiSync: null,
+        hostPanelOpen: false,
+        hostStyleState: null,
+        previewRestorePending: false,
+        previewRestoreSeen: false,
+        previewRestoreObserver: null,
+        previewRestoreTimeoutId: null,
+      },
+    };
 })(globalThis);

@@ -105,8 +105,8 @@ async function main() {
 
     const exportControlsPresent = await page.evaluate(() => {
       return Boolean(
-        document.getElementById("export-toggle") &&
-          document.getElementById("export-menu"),
+        document.getElementById("export-group") &&
+          document.querySelector("#export-group [data-export-format]"),
       );
     });
     if (!exportControlsPresent) {
@@ -115,40 +115,65 @@ async function main() {
 
     const exportFormats = await page.evaluate(() => {
       return Array.from(
-        document.querySelectorAll("#export-menu [data-export-format]"),
+        document.querySelectorAll("#export-group [data-export-format]"),
       ).map((node) => node.dataset.exportFormat);
     });
     if (
-      exportFormats.join(",") !== "json,csv,markdown,docx,pdf"
+      exportFormats.join(",") !== "json,csv,markdown,pdf"
     ) {
       throw new Error(
         `unexpected export formats: ${exportFormats.join(",") || "(none)"}`,
       );
     }
 
-    await page.keyboard.press("Escape");
+    await page.click("#sidebar-close");
     await page.waitForFunction(
       () => !document.getElementById("chatgpt-nav-sidebar")?.classList.contains("open"),
       null,
       { timeout: 15000 },
     );
 
-    const shortcut = process.platform === "darwin" ? "Meta+J" : "Control+J";
-    await page.keyboard.press(shortcut);
+    await page.evaluate(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "j",
+          metaKey: navigator.platform.includes("Mac"),
+          ctrlKey: !navigator.platform.includes("Mac"),
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
     await page.waitForFunction(
       () => document.getElementById("chatgpt-nav-sidebar")?.classList.contains("open"),
       null,
       { timeout: 15000 },
     );
 
-    await page.keyboard.press("/");
+    await page.evaluate(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "/",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
     await page.waitForFunction(
       () => document.activeElement?.id === "message-search",
       null,
       { timeout: 15000 },
     );
 
-    await page.keyboard.press("Escape");
+    await page.evaluate(() => {
+      document.getElementById("message-search")?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
     await page.waitForFunction(
       () => document.activeElement?.id !== "message-search",
       null,

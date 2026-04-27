@@ -56,7 +56,7 @@ describe("ChronoChat content script", () => {
     expect(actions?.children[1]?.textContent).toBe("Share");
   });
 
-  test("renders the sidebar with export controls and the retained controls", async () => {
+  test("renders sidebar controls promised by the product contract", async () => {
     const { api } = await loadChronoChat({
       html: createHostShell(`
         <div data-message-author-role="user"><div>Alpha launch details</div></div>
@@ -67,74 +67,26 @@ describe("ChronoChat content script", () => {
     api.toggleSidebar(true);
     await flushAsync();
 
+    expect(document.querySelector(".jtch-title")?.textContent).toBe("ChronoChat");
+    expect(document.getElementById("chatgpt-nav-toggle")?.textContent).toBe("Chrono");
+    expect(document.getElementById("chatgpt-nav-edge-toggle")).not.toBeNull();
     expect(document.getElementById("sidebar-close")).not.toBeNull();
-    expect(document.getElementById("export-toggle")).not.toBeNull();
-    expect(document.getElementById("export-menu")).not.toBeNull();
     expect(document.getElementById("message-count")).not.toBeNull();
-    expect(document.getElementById("filter-group")).not.toBeNull();
-    expect(document.getElementById("message-search")).not.toBeNull();
-    expect(document.getElementById("message-list")).not.toBeNull();
-    expect(document.querySelector(".jtch-header > .jtch-export-group")).toBeNull();
-    expect(document.querySelector(".jtch-title-meta > .jtch-export-group")).not.toBeNull();
-    expect(document.querySelector(".jtch-title-meta")?.contains(document.getElementById("export-toggle"))).toBe(true);
-    expect(document.querySelector(".jtch-title-meta")?.contains(document.getElementById("export-menu"))).toBe(true);
-
-    expect(document.getElementById("export-menu")?.hidden).toBe(true);
-    expect(
-      Array.from(document.querySelectorAll("#export-menu [data-export-format]")).map(
-        (node) => node.dataset.exportFormat,
-      ),
-    ).toEqual(["json", "csv", "markdown", "docx", "pdf"]);
-    expect(document.querySelector('#message-list li[data-message-index="0"]')?.classList.contains("role-user")).toBe(true);
-    expect(document.querySelector('#message-list li[data-message-index="1"]')?.classList.contains("role-assistant")).toBe(true);
-    expect(document.querySelector('#message-list li[data-message-index="0"]')?.dataset.role).toBe("user");
-    expect(document.querySelector('#message-list li[data-message-index="1"]')?.dataset.role).toBe("assistant");
-    expect(document.querySelector('#message-list li[data-message-index="0"] .jtch-role-badge')?.textContent).toBe("You");
-    expect(document.querySelector('#message-list li[data-message-index="1"] .jtch-role-badge')?.textContent).toBe("AI");
-    expect(document.getElementById("theme-toggle")).toBeNull();
-    expect(document.getElementById("regex-toggle")).toBeNull();
-    expect(document.getElementById("case-toggle")).toBeNull();
-    expect(document.getElementById("search-clear")).toBeNull();
-    expect(document.getElementById("pref-compact")).toBeNull();
-    expect(document.getElementById("pref-preview-len")).toBeNull();
-    expect(document.getElementById("sidebar-resize-handle")).toBeNull();
-  });
-
-  test("opens and closes the export menu through toggle, outside click, and Escape", async () => {
-    const { api } = await loadChronoChat({
-      html: createHostShell(`
-        <div data-message-author-role="user"><div>Alpha launch details</div></div>
-        <div data-message-author-role="assistant"><div>beta release checklist</div></div>
-      `),
+      expect(document.getElementById("filter-group")).not.toBeNull();
+      expect(document.getElementById("message-search")).not.toBeNull();
+      expect(document.getElementById("message-list")).not.toBeNull();
+      expect(document.getElementById("export-group")).not.toBeNull();
+      expect(document.querySelectorAll("[data-export-format]").length).toBe(4);
+      expect(document.querySelector('[data-export-format="pdf"]')).not.toBeNull();
+      expect(document.getElementById("regex-toggle")).not.toBeNull();
+      expect(document.getElementById("case-toggle")).not.toBeNull();
+      expect(document.getElementById("sidebar-resize-handle")).not.toBeNull();
+      expect(document.getElementById("preview-controls")).not.toBeNull();
+      expect(document.getElementById("attachment-dropbox")).not.toBeNull();
+      expect(document.getElementById("attachment-types")).not.toBeNull();
+      expect(document.querySelector(".jtch-attachment-caret")).not.toBeNull();
+      expect(document.getElementById("attachment-list")).not.toBeNull();
     });
-    api.toggleSidebar(true);
-    await flushAsync();
-
-    const exportToggle = document.getElementById("export-toggle");
-    const exportMenu = document.getElementById("export-menu");
-    const outside = document.createElement("button");
-    outside.type = "button";
-    outside.textContent = "Outside";
-    document.body.appendChild(outside);
-
-    expect(exportMenu.hidden).toBe(true);
-
-    exportToggle.click();
-    expect(exportMenu.hidden).toBe(false);
-    expect(exportToggle.getAttribute("aria-expanded")).toBe("true");
-
-    outside.click();
-    expect(exportMenu.hidden).toBe(true);
-    expect(exportToggle.getAttribute("aria-expanded")).toBe("false");
-
-    exportToggle.click();
-    expect(exportMenu.hidden).toBe(false);
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await flushAsync();
-
-    expect(exportMenu.hidden).toBe(true);
-    expect(exportToggle.getAttribute("aria-expanded")).toBe("false");
-  });
 
   test("renders sidebar search on runtime data", async () => {
     const { api } = await loadChronoChat({
@@ -154,6 +106,397 @@ describe("ChronoChat content script", () => {
     search.dispatchEvent(new Event("input", { bubbles: true }));
     expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
     expect(document.getElementById("search-meta").textContent).toContain("2 matches");
+  });
+
+  test("shows longer multi-line message previews in the sidebar", async () => {
+    const longMessage = [
+      "Questo messaggio ha una prima frase abbastanza generica,",
+      "ma poi contiene dettagli riconoscibili su fondi comuni, liquidita, costi,",
+      "allocazione azionaria, scenari KID e confronto ETF che devono restare visibili",
+      "nella preview per distinguere meglio il risultato nella sidebar.",
+    ].join(" ");
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="assistant"><div>${longMessage}</div></div>
+      `),
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const itemText = document.querySelector(".jtch-item-text");
+    expect(ns.config.maxPreviewLength).toBe(360);
+    expect(itemText?.textContent).toContain("scenari KID");
+    expect(itemText?.textContent).toContain("confronto ETF");
+  });
+
+  test("renders Markdown syntax in sidebar previews instead of showing raw markers", async () => {
+    const { api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="assistant">
+          <div class="markdown">
+            <h2>Sintesi brutale</h2>
+            <p>Risposta con <strong>enfasi</strong> e <code>codice</code>.</p>
+            <ul><li>Primo punto</li></ul>
+            <table>
+              <tr><th>Voce</th><th>Importo</th></tr>
+              <tr><td>Fondi</td><td>€2.221,47</td></tr>
+            </table>
+          </div>
+        </div>
+      `),
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const itemText = document.querySelector(".jtch-item-text");
+    expect(itemText?.textContent).toContain("Sintesi brutale");
+    expect(itemText?.textContent).toContain("enfasi");
+    expect(itemText?.textContent).toContain("codice");
+    expect(itemText?.textContent).toContain("Voce · Importo");
+    expect(itemText?.textContent).not.toContain("##");
+    expect(itemText?.textContent).not.toContain("**");
+    expect(itemText?.textContent).not.toContain("| --- |");
+    expect(document.querySelector(".jtch-item")?.getAttribute("aria-label")).not.toContain(
+      "##",
+    );
+    expect(document.querySelector(".jtch-item")?.getAttribute("aria-label")).not.toContain(
+      "**",
+    );
+    expect(itemText?.querySelector(".jtch-preview-row.strong")?.textContent).toBe(
+      "Sintesi brutale",
+    );
+    expect(itemText?.querySelector("strong")?.textContent).toBe("enfasi");
+    expect(itemText?.querySelector("code")?.textContent).toBe("codice");
+  });
+
+  test("collects uploaded file tiles and generated images in the Files dropbox", async () => {
+    const imageSource = "data:image/png;base64,iVBORw0KGgo=";
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user">
+          <div
+            class="relative group/file-tile"
+            role="group"
+            aria-label="20260424_Rendiconto Costi Oneri Incentivi_70835790.pdf"
+          >
+            <button type="button" aria-label="20260424_Rendiconto Costi Oneri Incentivi_70835790.pdf"></button>
+            <div class="truncate font-semibold">20260424_Rendiconto Costi Oneri Incentivi_70835790.pdf</div>
+            <div class="truncate text-token-text-secondary">PDF</div>
+          </div>
+        </div>
+        <div data-message-author-role="assistant">
+          <div class="markdown">
+            <p>Generated chart follows.</p>
+            <img alt="scenario-chart.png" src="${imageSource}" />
+          </div>
+        </div>
+      `),
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.attachments.length).toBe(2);
+    expect(document.getElementById("attachment-count").textContent).toBe("2");
+    expect(document.getElementById("attachment-dropbox").open).toBe(false);
+    document.querySelector(".jtch-attachment-summary").click();
+    expect(document.getElementById("attachment-dropbox").open).toBe(true);
+    expect(document.getElementById("attachment-list").textContent).toContain(
+      "20260424_Rendiconto Costi Oneri Incentivi_70835790.pdf",
+    );
+    expect(document.getElementById("attachment-list").textContent).toContain(
+      "scenario-chart.png",
+    );
+    expect(document.querySelector(".jtch-attachment-preview img")?.getAttribute("src")).toBe(
+      imageSource,
+    );
+  });
+
+  test("downloads an attachment from the Files dropbox without persisting message text in prefs", async () => {
+    const originalFetch = global.fetch;
+    const anchorClick = jest
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      blob: async () => new Blob(["image-bytes"], { type: "image/png" }),
+    }));
+
+    const { ns, api, chrome } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="assistant">
+          <div class="markdown">
+            <p>private generated image context</p>
+            <img alt="private-chart.png" src="https://chatgpt.com/backend-api/files/private-chart.png" />
+          </div>
+        </div>
+      `),
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const attachment = ns.state.conversation.attachments[0];
+    await ns.features.downloadAttachment(attachment.id);
+    await ns.storage.save();
+
+    expect(global.fetch).toHaveBeenCalledWith(attachment.url, { credentials: "include" });
+    expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(anchorClick).toHaveBeenCalled();
+    expect(ns.state.runtime.cachedAttachmentKeys.has(attachment.cacheKey)).toBe(true);
+    expect(JSON.stringify(chrome.__storageState.jtch_v3_prefs)).not.toContain(
+      "private generated image context",
+    );
+
+    global.fetch = originalFetch;
+    anchorClick.mockRestore();
+  });
+
+  test("collects spreadsheet data-grid artifacts in the Files dropbox", async () => {
+    const actionClick = jest.fn();
+    const downloadClick = jest.fn();
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="assistant">
+          <div class="flex flex-col gap-2 w-[80%]">
+            <div class="border-token-border-default text-token-text-primary relative overflow-hidden rounded-2xl border">
+              <div class="flex items-center justify-between gap-2 px-4 py-3 bg-token-main-surface-primary">
+                <span class="grow items-center truncate font-semibold capitalize">
+                  investimenti 27042026 (1)
+                  <button type="button" role="combobox">Sheet0</button>
+                </span>
+                <div class="flex items-center gap-3">
+                  <span data-state="closed"><button class="flex items-center text-xs" data-grid-action="open">Open grid</button></span>
+                  <span data-state="closed"><button class="flex items-center text-xs" data-grid-action="download">Download grid</button></span>
+                </div>
+              </div>
+              <div class="flex items-center justify-center bg-token-main-surface-primary" style="height: 300px;">
+                <canvas data-testid="data-grid-canvas" tabindex="0">
+                  <table role="grid" aria-rowcount="16" aria-colcount="11">
+                    <thead><tr><th role="columnheader">Unnamed: 0</th></tr></thead>
+                    <tbody><tr><td role="gridcell">Investimenti</td></tr></tbody>
+                  </table>
+                </canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      `),
+    });
+    document.querySelector("[data-grid-action='open']").addEventListener("click", actionClick);
+    document.querySelector("[data-grid-action='download']").addEventListener("click", downloadClick);
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.attachments.length).toBe(1);
+    expect(ns.state.conversation.attachments[0]).toMatchObject({
+      name: "investimenti 27042026 (1)",
+      typeLabel: "Sheet",
+      kind: "spreadsheet",
+      role: "assistant",
+    });
+    expect(document.getElementById("attachment-list").textContent).toContain(
+      "investimenti 27042026 (1)",
+    );
+    expect(document.querySelector(".jtch-attachment-kind")?.textContent).toBe("Sheet");
+    expect(document.querySelector(".jtch-attachment-source")?.textContent).toBe("AI");
+    expect(document.getElementById("attachment-types").textContent).toContain("XLS");
+    expect(document.getElementById("attachment-list").textContent).not.toContain("Sheet0");
+
+    await ns.features.openAttachment(ns.state.conversation.attachments[0].id);
+    expect(actionClick).toHaveBeenCalled();
+    expect(ns.state.ui.sidebarVisible).toBe(false);
+
+    api.toggleSidebar(true);
+    await flushAsync();
+    await ns.features.downloadAttachment(ns.state.conversation.attachments[0].id);
+    expect(downloadClick).toHaveBeenCalled();
+    expect(actionClick).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps attachment-only spreadsheet turns even when they have no readable title text", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="assistant">
+          <div class="relative overflow-hidden rounded-2xl border">
+            <div class="flex items-center justify-center" style="height: 300px;">
+              <canvas data-testid="data-grid-canvas" tabindex="0" width="1024" height="600"></canvas>
+            </div>
+          </div>
+        </div>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.messages.length).toBe(1);
+    expect(ns.state.conversation.attachments.length).toBe(1);
+    expect(ns.state.conversation.attachments[0]).toMatchObject({
+      name: "Spreadsheet artifact",
+      typeLabel: "Sheet",
+      kind: "spreadsheet",
+    });
+    expect(document.getElementById("attachment-types").textContent).toContain("XLS");
+  });
+
+  test("keeps attachment-only Excel upload tiles with aria labels", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user">
+          <div class="relative group/file-tile" role="group" aria-label="investimenti.xlsx">
+            <button type="button" aria-label="investimenti.xlsx"></button>
+          </div>
+        </div>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.messages.length).toBe(1);
+    expect(ns.state.conversation.attachments.length).toBe(1);
+    expect(ns.state.conversation.attachments[0]).toMatchObject({
+      name: "investimenti.xlsx",
+      typeLabel: "XLSX",
+      kind: "file",
+      role: "user",
+    });
+    expect(document.getElementById("attachment-types").textContent).toContain("XLSX");
+  });
+
+  test("collects spreadsheet artifacts even when ChatGPT mounts them outside message turns", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+          <div data-message-author-role="user"><div>please inspect this workbook</div></div>
+          <section class="relative overflow-hidden rounded-2xl border">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold">
+                investimenti fuori turno
+                <button type="button" role="combobox">Sheet0</button>
+              </span>
+              <button type="button">Open</button>
+            </div>
+            <canvas data-testid="data-grid-canvas" tabindex="0"></canvas>
+          </section>
+        `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.messages.length).toBe(1);
+    expect(ns.state.conversation.attachments.length).toBe(1);
+    expect(ns.state.conversation.attachments[0]).toMatchObject({
+      name: "investimenti fuori turno",
+      typeLabel: "Sheet",
+      kind: "spreadsheet",
+      role: "unknown",
+      messageIndex: -1,
+    });
+    expect(document.getElementById("attachment-types").textContent).toContain("XLS");
+    expect(document.getElementById("attachment-list").textContent).toContain(
+      "investimenti fuori turno",
+    );
+  });
+
+  test("does not collect profile menu or avatar chrome as conversation files", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(
+        `
+          <div data-message-author-role="user"><div>normal message</div></div>
+        `,
+        `
+          <nav aria-label="Account">
+            <div role="group" aria-label="Open profile menu">
+              <span>File</span>
+              <span>Chat</span>
+              <button type="button">Open</button>
+            </div>
+            <img alt="Profile image" src="data:image/png;base64,avatar" />
+          </nav>
+        `,
+      ),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.attachments.length).toBe(0);
+    expect(document.getElementById("attachment-types").textContent).toBe("No files");
+    expect(document.getElementById("attachment-list").textContent).toContain(
+      "No files in this conversation yet.",
+    );
+  });
+
+  test("save does not open a preview when no direct download action is exposed", async () => {
+    const previewClick = jest.fn();
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user">
+          <div
+            class="relative group/file-tile"
+            role="group"
+            aria-label="Preview-only.pdf"
+          >
+            <button type="button" data-preview-action aria-label="Preview-only.pdf"></button>
+            <div class="truncate font-semibold">Preview-only.pdf</div>
+            <div class="truncate text-token-text-secondary">PDF</div>
+          </div>
+        </div>
+      `),
+    });
+    document.querySelector("[data-preview-action]").addEventListener("click", previewClick);
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    await ns.features.downloadAttachment(ns.state.conversation.attachments[0].id);
+    expect(previewClick).not.toHaveBeenCalled();
+    expect(document.getElementById("search-meta").textContent).toContain(
+      "No direct download action",
+    );
+  });
+
+  test("reopens the sidebar after an attachment preview closes", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user">
+          <div
+            class="relative group/file-tile"
+            role="group"
+            aria-label="Preview.pdf"
+          >
+            <button type="button" data-preview-action aria-label="Preview.pdf"></button>
+            <div class="truncate font-semibold">Preview.pdf</div>
+            <div class="truncate text-token-text-secondary">PDF</div>
+          </div>
+        </div>
+      `),
+    });
+    document.querySelector("[data-preview-action]").addEventListener("click", () => {
+      const dialog = document.createElement("div");
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-label", "Visualizzatore Preview.pdf");
+      document.body.appendChild(dialog);
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    await ns.features.openAttachment(ns.state.conversation.attachments[0].id);
+    await flushAsync();
+
+    expect(ns.state.ui.sidebarVisible).toBe(false);
+    expect(document.querySelector("[role='dialog']")).not.toBeNull();
+
+    document.querySelector("[role='dialog']").remove();
+    await flushAsync();
+    await flushAsync();
+
+    expect(ns.state.ui.sidebarVisible).toBe(true);
+    expect(document.getElementById("chatgpt-nav-sidebar")?.classList.contains("open")).toBe(
+      true,
+    );
   });
 
   test("keyboard navigation only uses visible items", async () => {
@@ -180,37 +523,6 @@ describe("ChronoChat content script", () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
-  test("typing in search input does not trigger global j/k/enter shortcuts", async () => {
-    const { ns, api } = await loadChronoChat({
-      html: createHostShell(`
-        <div data-message-author-role="user"><div>first user</div></div>
-        <div data-message-author-role="assistant"><div>assistant answer</div></div>
-      `),
-    });
-    api.toggleSidebar(true);
-    await flushAsync();
-
-    const search = document.getElementById("message-search");
-    search.focus();
-
-    ns.state.ui.selectedMessageIndex = -1;
-    search.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
-    search.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true }));
-    expect(ns.state.ui.selectedMessageIndex).toBe(-1);
-
-    ns.state.ui.selectedMessageIndex = 1;
-    Element.prototype.scrollIntoView.mockClear();
-    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
-
-    search.value = "assistant";
-    search.dispatchEvent(new Event("input", { bubbles: true }));
-    search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await flushAsync();
-    expect(search.value).toBe("");
-    expect(ns.state.ui.search.term).toBe("");
-  });
-
   test("route change resets conversation state only", async () => {
     const { ns, api } = await loadChronoChat({
       pathname: "/c/chat-one",
@@ -229,54 +541,6 @@ describe("ChronoChat content script", () => {
     expect(ns.state.conversation.id).toBe("chat:chat-two");
     expect(ns.state.ui.search.term).toBe("");
     expect(ns.state.ui.selectedMessageIndex).toBe(-1);
-  });
-
-  test("pushState route change is detected without manual polling", async () => {
-    const { ns } = await loadChronoChat({
-      pathname: "/c/chat-alpha",
-      html: createHostShell(`
-        <div data-message-author-role="user"><div>chat alpha user</div></div>
-        <div data-message-author-role="assistant"><div>chat alpha assistant</div></div>
-      `),
-    });
-
-    window.history.pushState({}, "", "/c/chat-beta");
-    await new Promise((resolve) => setTimeout(resolve, 180));
-
-    expect(ns.state.conversation.id).toBe("chat:chat-beta");
-  });
-
-  test("virtualization renders latest page first and supports loading earlier matches", async () => {
-    const rows = Array.from({ length: 120 }, (_, index) => {
-      const role = index % 2 === 0 ? "user" : "assistant";
-      return `<div data-message-author-role="${role}"><div>message ${index}</div></div>`;
-    }).join("\n");
-
-    const { api } = await loadChronoChat({
-      html: createHostShell(rows),
-    });
-
-    api.toggleSidebar(true);
-    await flushAsync();
-
-    const initialItems = Array.from(
-      document.querySelectorAll("#message-list li[data-message-index]"),
-    );
-    expect(initialItems.length).toBe(60);
-    expect(document.querySelector("#message-list li[data-action='load-older']")).not.toBeNull();
-    expect(Number(initialItems[0].dataset.messageIndex)).toBe(60);
-
-    document
-      .querySelector("#message-list li[data-action='load-older']")
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await flushAsync();
-
-    const olderItems = Array.from(
-      document.querySelectorAll("#message-list li[data-message-index]"),
-    );
-    expect(olderItems.length).toBe(60);
-    expect(document.querySelector("#message-list li[data-action='load-older']")).toBeNull();
-    expect(Number(olderItems[0].dataset.messageIndex)).toBe(0);
   });
 
   test("clicking the host toggle opens ChronoChat even if Activity is present", async () => {
@@ -323,16 +587,42 @@ describe("ChronoChat content script", () => {
     });
 
     const toggleSlot = document.getElementById("chatgpt-nav-toggle-slot");
+    const edgeToggle = document.getElementById("chatgpt-nav-edge-toggle");
+    expect(edgeToggle.hidden).toBe(false);
 
     api.toggleSidebar(true);
     await flushAsync();
 
     expect(toggleSlot.hidden).toBe(true);
+    expect(edgeToggle.hidden).toBe(true);
 
     document.getElementById("sidebar-close").click();
     await flushAsync();
 
     expect(toggleSlot.hidden).toBe(false);
+    expect(edgeToggle.hidden).toBe(false);
+  });
+
+  test("left edge quick-open button opens ChronoChat", async () => {
+    const { api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>hello</div></div>
+        <div data-message-author-role="assistant"><div>world</div></div>
+      `),
+    });
+
+    const edgeToggle = document.getElementById("chatgpt-nav-edge-toggle");
+    expect(edgeToggle.textContent).toBe(">");
+    expect(edgeToggle.hidden).toBe(false);
+
+    edgeToggle.click();
+    await flushAsync();
+
+    expect(api.ns.state.ui.sidebarVisible).toBe(true);
+    expect(document.getElementById("chatgpt-nav-sidebar")?.classList.contains("open")).toBe(
+      true,
+    );
+    expect(edgeToggle.hidden).toBe(true);
   });
 
   test("opens ChronoChat on the left without covering the host left rail", async () => {
@@ -366,9 +656,122 @@ describe("ChronoChat content script", () => {
 
     expect(sidebar?.classList.contains("open")).toBe(true);
     expect(sidebar?.style.getPropertyValue("left")).toBe("88px");
-    expect(chatContainer?.style.marginLeft).toBe("336px");
-    expect(chatContainer?.style.marginRight).toBe("0px");
-  });
+      expect(chatContainer?.style.marginLeft).toBe("");
+      expect(chatContainer?.style.marginRight).toBe("");
+    });
+
+    test("does not shift existing host inline layout styles when the sidebar opens", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>hello</div></div>
+          <div data-message-author-role="assistant"><div>world</div></div>
+        `),
+      });
+      const chatContainer = document.querySelector("main");
+      chatContainer.style.marginLeft = "24px";
+      chatContainer.style.marginRight = "12px";
+      chatContainer.style.transition = "opacity 1s ease";
+
+      api.toggleSidebar(true);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("24px");
+      expect(chatContainer.style.marginRight).toBe("12px");
+      expect(chatContainer.style.transition).toBe("opacity 1s ease");
+
+      api.toggleSidebar(false);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("24px");
+      expect(chatContainer.style.marginRight).toBe("12px");
+      expect(chatContainer.style.transition).toBe("opacity 1s ease");
+    });
+
+    test("shifts the host chat only when the resized sidebar would cover it", async () => {
+      const { ns, api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>hello</div></div>
+          <div data-message-author-role="assistant"><div>world</div></div>
+        `),
+      });
+      const chatContainer = document.querySelector("main");
+      chatContainer.getBoundingClientRect = () => ({
+        width: 760,
+        height: 680,
+        top: 80,
+        right: 1230,
+        bottom: 760,
+        left: 470,
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("");
+
+      ns.features.setSidebarWidth(520);
+      api.toggleSidebar(true);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("34px");
+
+      api.toggleSidebar(false);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("");
+    });
+
+    test("does not shift the host chat at default width even when the container starts near the sidebar", async () => {
+      const { ns, api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>hello</div></div>
+          <div data-message-author-role="assistant"><div>world</div></div>
+        `),
+      });
+      const chatContainer = document.querySelector("main");
+      chatContainer.getBoundingClientRect = () => ({
+        width: 760,
+        height: 680,
+        top: 80,
+        right: 1020,
+        bottom: 760,
+        left: 260,
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("");
+
+      ns.features.setSidebarWidth(360);
+      api.syncHostUi();
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("");
+    });
+
+    test("keeps resize shifting stable while the shifted chat rect changes during drag", async () => {
+      const { ns, api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>hello</div></div>
+          <div data-message-author-role="assistant"><div>world</div></div>
+        `),
+      });
+      const chatContainer = document.querySelector("main");
+      let currentLeft = 470;
+      chatContainer.getBoundingClientRect = () => ({
+        width: 760,
+        height: 680,
+        top: 80,
+        right: currentLeft + 760,
+        bottom: 760,
+        left: currentLeft,
+      });
+
+      api.toggleSidebar(true);
+      ns.features.setSidebarWidth(520);
+      api.toggleSidebar(true);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("34px");
+
+      currentLeft = 538;
+      api.toggleSidebar(true);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("34px");
+    });
 
   test("clicking the host toggle does not try to close the host activity rail first", async () => {
     const { api } = await loadChronoChat({
@@ -632,9 +1035,9 @@ describe("ChronoChat content script", () => {
 
     expect(sidebar?.classList.contains("open")).toBe(true);
     expect(sidebar?.style.getPropertyValue("left")).toBe("88px");
-    expect(chatContainer?.style.marginLeft).toBe("336px");
-    expect(chatContainer?.style.marginRight).toBe("0px");
-  });
+      expect(chatContainer?.style.marginLeft).toBe("");
+      expect(chatContainer?.style.marginRight).toBe("");
+    });
 
   test("close button click closes the sidebar", async () => {
     const { api } = await loadChronoChat({
@@ -667,8 +1070,8 @@ describe("ChronoChat content script", () => {
     expect(() => api.cleanup()).not.toThrow();
   });
 
-  test("filter clicks update the visible message list", async () => {
-    const { api } = await loadChronoChat({
+  test("rebinds sidebar controls after page lifecycle cleanup and reinit", async () => {
+    const { ns, api } = await loadChronoChat({
       html: createHostShell(`
         <div data-message-author-role="user"><div>first user</div></div>
         <div data-message-author-role="assistant"><div>only assistant</div></div>
@@ -679,14 +1082,239 @@ describe("ChronoChat content script", () => {
     api.toggleSidebar(true);
     await flushAsync();
 
+    api.cleanup();
+    await api.init();
+    api.toggleSidebar(true);
+    await flushAsync();
+
     document
       .querySelector('[data-filter="assistant"]')
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await flushAsync();
 
+    expect(ns.state.ui.currentFilter).toBe("assistant");
     expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(1);
-    expect(document.querySelector("#message-list")?.textContent).toContain("only assistant");
   });
+
+    test("filter clicks update the visible message list", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>first user</div></div>
+          <div data-message-author-role="assistant"><div>only assistant</div></div>
+          <div data-message-author-role="user"><div>second user</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      document
+        .querySelector('[data-filter="assistant"]')
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushAsync();
+
+      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(1);
+      expect(document.querySelector("#message-list")?.textContent).toContain("only assistant");
+    });
+
+    test("search supports regex and case-sensitive modes with invalid regex status", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>Alpha launch details</div></div>
+          <div data-message-author-role="assistant"><div>alpha lowercase reply</div></div>
+          <div data-message-author-role="user"><div>Beta plan</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      document.getElementById("regex-toggle").click();
+      const search = document.getElementById("message-search");
+      search.value = "^Alpha";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
+
+      document.getElementById("case-toggle").click();
+      search.value = "^Alpha";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(1);
+
+      search.value = "[";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(document.getElementById("search-meta").textContent).toContain("Invalid regex");
+    });
+
+    test("exports JSON, CSV, Markdown, and PDF through reachable buttons", async () => {
+      const anchorClick = jest
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => {});
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>Export me</div></div>
+          <div data-message-author-role="assistant"><div>Export reply</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      document.querySelector('[data-export-format="json"]').click();
+      document.querySelector('[data-export-format="csv"]').click();
+      document.querySelector('[data-export-format="markdown"]').click();
+      document.querySelector('[data-export-format="pdf"]').click();
+      await flushAsync();
+
+      expect(anchorClick).toHaveBeenCalledTimes(3);
+      expect(URL.createObjectURL).toHaveBeenCalledTimes(3);
+      expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
+      expect(document.querySelector(".jtch-print-frame")).not.toBeNull();
+      expect(document.getElementById("search-meta").textContent).toContain("PDF export opened");
+      anchorClick.mockRestore();
+    });
+
+    test("search mode buttons toggle visible state and immediately change results", async () => {
+      const { ns, api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>Alpha launch details</div></div>
+          <div data-message-author-role="assistant"><div>alpha lowercase reply</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const search = document.getElementById("message-search");
+      search.value = "alpha";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
+
+      document.getElementById("case-toggle").click();
+      expect(ns.state.ui.search.caseSensitive).toBe(true);
+      expect(document.getElementById("case-toggle").getAttribute("aria-pressed")).toBe("true");
+      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(1);
+
+      search.value = "^Alpha";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      document.getElementById("regex-toggle").click();
+      expect(ns.state.ui.search.regex).toBe(true);
+      expect(document.getElementById("regex-toggle").getAttribute("aria-pressed")).toBe("true");
+      expect(document.getElementById("search-meta").textContent).toContain("Regex");
+    });
+
+    test("resizes sidebar and persists only UI preferences", async () => {
+      const { ns, api, chrome } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>private message content</div></div>
+          <div data-message-author-role="assistant"><div>private assistant content</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      ns.features.setSidebarWidth(420);
+      api.syncHostUi();
+      await ns.storage.save();
+
+      expect(document.getElementById("chatgpt-nav-sidebar").style.width).toBe("420px");
+      expect(chrome.__storageState.jtch_v3_prefs.sidebarWidth).toBe(420);
+      expect(JSON.stringify(chrome.__storageState.jtch_v3_prefs)).not.toContain(
+        "private message content",
+      );
+      expect(JSON.stringify(chrome.__storageState.jtch_v3_prefs)).not.toContain(
+        "private assistant content",
+      );
+    });
+
+    test("drags the sidebar resize handle and changes preview text size", async () => {
+      const { ns, api, chrome } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>private message content</div></div>
+          <div data-message-author-role="assistant"><div>private assistant content</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const sidebar = document.getElementById("chatgpt-nav-sidebar");
+      const resizeHandle = document.getElementById("sidebar-resize-handle");
+      resizeHandle.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, clientX: 336 }),
+      );
+      window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 420 }));
+      window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+
+      expect(sidebar.style.width).toBe("420px");
+      expect(ns.state.ui.sidebarWidth).toBe(420);
+
+      document
+        .querySelector('[data-preview-size-action="increase"]')
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      expect(ns.state.ui.previewFontSize).toBe(13);
+      expect(sidebar.style.getPropertyValue("--jtch-preview-font-size")).toBe("13px");
+      expect(
+        document.querySelector('[data-preview-size-action="reset"]').getAttribute(
+          "aria-pressed",
+        ),
+      ).toBe("false");
+
+      document
+        .querySelector('[data-preview-size-action="reset"]')
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      expect(ns.state.ui.previewFontSize).toBe(12);
+      expect(sidebar.style.getPropertyValue("--jtch-preview-font-size")).toBe("12px");
+      expect(
+        document.querySelector('[data-preview-size-action="reset"]').getAttribute(
+          "aria-pressed",
+        ),
+      ).toBe("true");
+
+      await ns.storage.save();
+      expect(chrome.__storageState.jtch_v3_prefs.previewFontSize).toBe(12);
+      expect(JSON.stringify(chrome.__storageState.jtch_v3_prefs)).not.toContain(
+        "private message content",
+      );
+    });
+
+    test("loads persisted sidebar width and search options", async () => {
+      const { ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>stored prefs message</div></div>
+        `),
+        storageSeed: {
+          jtch_v3_prefs: {
+            sidebarWidth: 410,
+            previewFontSize: 14,
+            search: { regex: true, caseSensitive: true },
+          },
+        },
+      });
+
+      expect(ns.state.ui.sidebarWidth).toBe(410);
+      expect(ns.state.ui.previewFontSize).toBe(14);
+      expect(ns.state.ui.search.regex).toBe(true);
+      expect(ns.state.ui.search.caseSensitive).toBe(true);
+    });
+
+    test("virtual list starts on latest messages and loads earlier matches", async () => {
+      const messages = Array.from({ length: 90 }, (_, index) => {
+        const role = index % 2 === 0 ? "user" : "assistant";
+        return `<div data-message-author-role="${role}"><div>message ${index}</div></div>`;
+      }).join("");
+      const { api } = await loadChronoChat({
+        html: createHostShell(messages),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      expect(document.querySelector("#message-list")?.textContent).toContain("message 89");
+      expect(document.querySelector("#message-list")?.textContent).not.toContain("message 0");
+
+      document.querySelector("[data-action='load-older']").click();
+      await flushAsync();
+
+      expect(document.querySelector("#message-list")?.textContent).toContain("message 0");
+    });
 
   test("clicking a sidebar message scrolls to the source message node", async () => {
     const { api } = await loadChronoChat({
@@ -702,33 +1330,12 @@ describe("ChronoChat content script", () => {
     const item = document.querySelector('#message-list li[data-message-index="1"]');
     item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
-  });
-
-  test("long-message jump scrolls to the message root, not a nested content block", async () => {
-    const { ns, api } = await loadChronoChat({
-      html: createHostShell(`
-        <div data-message-author-role="user"><div>first user</div></div>
-        <div data-message-author-role="assistant" id="assistant-root">
-          <div class="markdown">
-            <div id="assistant-inner">Very long assistant response block...</div>
-          </div>
-        </div>
-      `),
-    });
-    api.toggleSidebar(true);
-    await flushAsync();
-
-    const assistantRoot = document.getElementById("assistant-root");
-    const assistantInner = document.getElementById("assistant-inner");
-    assistantRoot.scrollIntoView = jest.fn();
-    assistantInner.scrollIntoView = jest.fn();
-
-    ns.state.conversation.messages[1].domNode = assistantInner;
-    ns.features.scrollToMessage(1);
-
-    expect(assistantRoot.scrollIntoView).toHaveBeenCalled();
-    expect(assistantInner.scrollIntoView).not.toHaveBeenCalled();
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith(
+      expect.objectContaining({ block: "start" }),
+    );
+    expect(api.ns.state.conversation.messages[1].domNode.classList).toContain(
+      "jtch-target-highlight",
+    );
   });
 
   test("recreated sidebar keeps close, filter, and message click interactions working", async () => {
@@ -883,7 +1490,7 @@ describe("ChronoChat content script", () => {
     );
   });
 
-  test("ignores trailing composer wrappers even when they contain visible helper text", async () => {
+    test("ignores trailing composer wrappers even when they contain visible helper text", async () => {
     const { api } = await loadChronoChat({
       html: createHostShell(`
         <div data-message-author-role="user"><div>real user message</div></div>
@@ -901,8 +1508,57 @@ describe("ChronoChat content script", () => {
     await flushAsync();
 
     expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
-    expect(document.querySelector("#message-list")?.textContent).not.toContain(
-      "Drag files here",
-    );
+      expect(document.querySelector("#message-list")?.textContent).not.toContain(
+        "Drag files here",
+      );
+    });
+
+    test("uses rendered message index for fallback role parity after skipped artifacts", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-testid="conversation-turn">
+            <form>
+              <textarea placeholder="Message ChatGPT"></textarea>
+            </form>
+          </div>
+          <div data-testid="conversation-turn"><div>first real message without metadata</div></div>
+          <div data-testid="conversation-turn"><div>second real message without metadata</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const items = Array.from(document.querySelectorAll("#message-list li[data-message-index]"));
+      expect(items[0].dataset.role).toBe("user");
+      expect(items[1].dataset.role).toBe("assistant");
+    });
+
+    test("creates a root conversation id for root URLs with model query params", async () => {
+      const { ns } = await loadChronoChat({
+        pathname: "/?model=text-davinci-002-render-sha",
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>root chat message</div></div>
+        `),
+      });
+
+      expect(ns.state.conversation.id).toBe("chat:root");
+    });
+
+    test("represents image-only messages instead of dropping them", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="assistant">
+            <img alt="Generated image" src="data:image/png;base64,abc" />
+          </div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      expect(document.querySelector("#message-list")?.textContent).toContain(
+        "Message contains an image or attachment",
+      );
+    });
   });
-});

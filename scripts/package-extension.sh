@@ -15,6 +15,7 @@ zip -rq "$ZIP_PATH" \
   content_script.js \
   service_worker.js \
   style.css \
-  assets/icons
+  assets/icons \
+  assets/fonts
 
 echo "Created package: $ZIP_PATH"

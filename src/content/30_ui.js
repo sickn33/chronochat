@@ -2,6 +2,7 @@
   const ns = root.__JTC__;
   let hostToggleButton = null;
   let hostToggleSlot = null;
+  let edgeToggleButton = null;
 
   function createButton({
     id,
@@ -41,7 +42,7 @@
 
     const title = document.createElement("div");
     title.className = "jtch-title";
-    title.textContent = "Conversation map";
+    title.textContent = "ChronoChat";
 
     const titleMeta = document.createElement("div");
     titleMeta.className = "jtch-title-meta";
@@ -61,55 +62,34 @@
     });
 
     titleMeta.appendChild(count);
-    const exportGroup = document.createElement("div");
-    exportGroup.className = "jtch-export-group";
-
-    const exportToggle = createButton({
-      id: "export-toggle",
-      className: "jtch-export-toggle jtch-icon-button",
-      text: "Export",
-      label: "Export conversation",
-      title: "Export conversation",
-      dataset: {
-        exportMenuToggle: "true",
-      },
-    });
-    exportToggle.setAttribute("aria-haspopup", "menu");
-    exportToggle.setAttribute("aria-expanded", "false");
-
-    const exportMenu = document.createElement("div");
-    exportMenu.id = "export-menu";
-    exportMenu.className = "jtch-export-menu";
-    exportMenu.setAttribute("role", "menu");
-    exportMenu.hidden = true;
-
-    [
-      { label: "JSON", value: "json" },
-      { label: "CSV", value: "csv" },
-      { label: "Markdown", value: "markdown" },
-      { label: "DOCX", value: "docx" },
-      { label: "PDF", value: "pdf" },
-    ].forEach((format) => {
-      exportMenu.appendChild(
-        createButton({
-          className: "jtch-export-item",
-          text: format.label,
-          label: `Export as ${format.label}`,
-          dataset: { exportFormat: format.value },
-        }),
-      );
-    });
-
-    exportGroup.appendChild(exportToggle);
-    exportGroup.appendChild(exportMenu);
-    titleMeta.appendChild(exportGroup);
     titleMeta.appendChild(closeButton);
     titleRow.appendChild(title);
     titleRow.appendChild(titleMeta);
 
+    const exportGroup = document.createElement("div");
+    exportGroup.className = "jtch-export-group";
+    exportGroup.id = "export-group";
+    exportGroup.setAttribute("aria-label", "Export conversation");
+    [
+      { label: "JSON", format: "json" },
+      { label: "CSV", format: "csv" },
+      { label: "MD", format: "markdown" },
+      { label: "PDF", format: "pdf" },
+    ].forEach((exportOption) => {
+      exportGroup.appendChild(
+        createButton({
+          className: "jtch-export-button",
+          text: exportOption.label,
+          label: `Export ${exportOption.label}`,
+          dataset: { exportFormat: exportOption.format },
+        }),
+      );
+    });
+
     const filterGroup = document.createElement("div");
     filterGroup.className = "jtch-filter-group";
     filterGroup.id = "filter-group";
+    filterGroup.setAttribute("aria-label", "Message filters");
     [
       { label: "All", value: "all" },
       { label: "You", value: "user" },
@@ -137,14 +117,101 @@
 
     searchRow.appendChild(searchInput);
 
+    const searchOptions = document.createElement("div");
+    searchOptions.className = "jtch-search-options";
+    [
+      { id: "regex-toggle", label: "Regex", option: "regex" },
+      { id: "case-toggle", label: "Aa", option: "caseSensitive" },
+    ].forEach((option) => {
+      searchOptions.appendChild(
+        createButton({
+          id: option.id,
+          className: "jtch-option-toggle",
+          text: option.label,
+          label:
+            option.option === "regex"
+              ? "Use regular expression search"
+              : "Use case sensitive search",
+          dataset: { searchOption: option.option },
+        }),
+      );
+    });
+
+    const previewControls = document.createElement("div");
+    previewControls.className = "jtch-preview-controls";
+    previewControls.id = "preview-controls";
+    previewControls.setAttribute("aria-label", "Preview text size");
+    [
+      { label: "A-", action: "decrease", aria: "Decrease preview text size" },
+      { label: "A", action: "reset", aria: "Reset preview text size" },
+      { label: "A+", action: "increase", aria: "Increase preview text size" },
+    ].forEach((control) => {
+      previewControls.appendChild(
+        createButton({
+          className: "jtch-preview-size-button",
+          text: control.label,
+          label: control.aria,
+          dataset: { previewSizeAction: control.action },
+        }),
+      );
+    });
+
     const searchMeta = document.createElement("div");
     searchMeta.id = "search-meta";
     searchMeta.className = "jtch-search-meta";
 
     header.appendChild(titleRow);
+    header.appendChild(exportGroup);
     header.appendChild(filterGroup);
     header.appendChild(searchRow);
+    header.appendChild(searchOptions);
+    header.appendChild(previewControls);
     header.appendChild(searchMeta);
+
+    const attachmentDropBox = document.createElement("details");
+    attachmentDropBox.id = "attachment-dropbox";
+    attachmentDropBox.className = "jtch-attachment-dropbox";
+
+    const attachmentSummary = document.createElement("summary");
+    attachmentSummary.className = "jtch-attachment-summary";
+    attachmentSummary.setAttribute("aria-label", "Conversation files");
+
+    const attachmentSummaryBody = document.createElement("span");
+    attachmentSummaryBody.className = "jtch-attachment-summary-body";
+
+    const attachmentTitle = document.createElement("span");
+    attachmentTitle.className = "jtch-attachment-title";
+    attachmentTitle.textContent = "Files";
+
+    const attachmentTypes = document.createElement("span");
+    attachmentTypes.id = "attachment-types";
+    attachmentTypes.className = "jtch-attachment-types";
+    attachmentTypes.textContent = "No files";
+
+    const attachmentCount = document.createElement("span");
+    attachmentCount.id = "attachment-count";
+    attachmentCount.className = "jtch-attachment-count";
+    attachmentCount.textContent = "0";
+    attachmentCount.setAttribute("aria-live", "polite");
+
+    const attachmentCaret = document.createElement("span");
+    attachmentCaret.className = "jtch-attachment-caret";
+    attachmentCaret.setAttribute("aria-hidden", "true");
+    attachmentCaret.textContent = ">";
+
+    attachmentSummaryBody.appendChild(attachmentTitle);
+    attachmentSummaryBody.appendChild(attachmentTypes);
+    attachmentSummary.appendChild(attachmentSummaryBody);
+    attachmentSummary.appendChild(attachmentCount);
+    attachmentSummary.appendChild(attachmentCaret);
+
+    const attachmentList = document.createElement("ul");
+    attachmentList.id = "attachment-list";
+    attachmentList.className = "jtch-attachment-list";
+    attachmentList.setAttribute("aria-label", "Conversation files");
+
+    attachmentDropBox.appendChild(attachmentSummary);
+    attachmentDropBox.appendChild(attachmentList);
 
     const messageSection = document.createElement("div");
     messageSection.className = "jtch-section jtch-message-section";
@@ -153,11 +220,22 @@
     messageList.id = "message-list";
     messageList.className = "jtch-list";
     messageList.setAttribute("aria-label", "Conversation messages");
+    messageList.setAttribute("role", "listbox");
 
     messageSection.appendChild(messageList);
 
+    const resizeHandle = document.createElement("div");
+    resizeHandle.id = "sidebar-resize-handle";
+    resizeHandle.className = "jtch-resize-handle";
+    resizeHandle.setAttribute("role", "separator");
+    resizeHandle.setAttribute("aria-orientation", "vertical");
+    resizeHandle.setAttribute("aria-label", "Resize ChronoChat sidebar");
+    resizeHandle.tabIndex = 0;
+
     sidebar.appendChild(header);
+    sidebar.appendChild(attachmentDropBox);
     sidebar.appendChild(messageSection);
+    sidebar.appendChild(resizeHandle);
     return sidebar;
   }
 
@@ -172,7 +250,7 @@
       hostToggleButton = createButton({
         id: "chatgpt-nav-toggle",
         className: "jtch-host-toggle",
-        text: "Jump",
+        text: "Chrono",
         label: "Open ChronoChat",
         title: "Open ChronoChat",
       });
@@ -195,6 +273,26 @@
     }
 
     return hostToggleSlot;
+  }
+
+  function getOrCreateEdgeToggleButton() {
+    const existing = document.getElementById("chatgpt-nav-edge-toggle");
+    if (existing) {
+      edgeToggleButton = existing;
+      return edgeToggleButton;
+    }
+
+    if (!edgeToggleButton) {
+      edgeToggleButton = createButton({
+        id: "chatgpt-nav-edge-toggle",
+        className: "jtch-edge-toggle",
+        text: ">",
+        label: "Open ChronoChat",
+        title: "Open ChronoChat",
+      });
+    }
+
+    return edgeToggleButton;
   }
 
   function syncHostTogglePosition() {
@@ -242,15 +340,13 @@
       document.body.appendChild(sidebar);
     }
 
+    const edgeToggle = getOrCreateEdgeToggleButton();
+    if (!edgeToggle.isConnected) {
+      document.body.appendChild(edgeToggle);
+    }
+
     const { toggle, slot, mounted } = ensureHostToggleMounted();
-    return {
-      sidebar,
-      toggle,
-      toggleSlot: slot,
-      toggleMounted: mounted,
-      exportToggle: document.getElementById("export-toggle"),
-      exportMenu: document.getElementById("export-menu"),
-    };
+    return { sidebar, toggle, edgeToggle, toggleSlot: slot, toggleMounted: mounted };
   }
 
   ns.ui = {
