@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>ChronoChat HyperFrames Promo</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "OpenAI Sans";
+        src: url("assets/chronochat/OpenAISans-Regular.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "OpenAI Sans";
+        src: url("assets/chronochat/OpenAISans-Semibold.woff2") format("woff2");
+        font-weight: 700;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "OpenAI Sans";
+        src: url("assets/chronochat/OpenAISans-Bold.woff2") format("woff2");
+        font-weight: 900;
+        font-style: normal;
+        font-display: block;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #101010;
+        color: #f4f4f2;
+        font-family: "OpenAI Sans", Arial, sans-serif;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 76% 18%, rgba(16, 163, 127, 0.2), transparent 30%),
+          radial-gradient(circle at 18% 84%, rgba(244, 244, 242, 0.08), transparent 34%),
+          #101010;
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      .scene-content {
+        width: 100%;
+        height: 100%;
+        padding: 98px 120px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 34px;
+        position: relative;
+        z-index: 3;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: 680px 1fr;
+        align-items: center;
+        gap: 88px;
+      }
+
+      .logo-row {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+      }
+
+      .logo {
+        width: 92px;
+        height: 92px;
+        border-radius: 22px;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+      }
+
+      .logo-bg {
+        background-image: url("assets/chronochat/logo.svg");
+        background-size: cover;
+        background-position: center;
+      }
+
+      .brand {
+        font-size: 44px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .eyebrow {
+        color: #10a37f;
+        font-size: 24px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        color: #f4f4f2;
+        font-weight: 900;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-size: 88px;
+        line-height: 0.94;
+        max-width: 720px;
+      }
+
+      h2 {
+        font-size: 78px;
+        line-height: 0.96;
+        max-width: 780px;
+      }
+
+      .copy {
+        margin: 0;
+        color: #b8b8b4;
+        font-size: 30px;
+        line-height: 1.32;
+        max-width: 760px;
+      }
+
+      .browser-frame {
+        width: 1050px;
+        height: 694px;
+        border-radius: 32px;
+        overflow: hidden;
+        background: #f7f7f8;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 0 58px 140px rgba(0, 0, 0, 0.5);
+      }
+
+      .browser-frame img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: left top;
+        display: block;
+      }
+
+      .sidebar-proof {
+        width: 380px;
+        height: 720px;
+        border-radius: 30px;
+        overflow: hidden;
+        background: #f7f7f8;
+        box-shadow: 0 48px 120px rgba(0, 0, 0, 0.48);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+      }
+
+      .sidebar-proof img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: left top;
+        display: block;
+      }
+
+      .feature-grid {
+        width: 820px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+      }
+
+      .feature {
+        min-height: 210px;
+        border-radius: 24px;
+        padding: 28px;
+        background: rgba(33, 33, 33, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 28px 76px rgba(0, 0, 0, 0.24);
+      }
+
+      .feature-mark {
+        width: 48px;
+        height: 48px;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        background: #10a37f;
+        color: #101010;
+        font-size: 25px;
+        font-weight: 900;
+      }
+
+      .feature h3 {
+        margin: 22px 0 10px;
+        font-size: 31px;
+        line-height: 1.05;
+        color: #f4f4f2;
+      }
+
+      .feature p {
+        margin: 0;
+        color: #b8b8b4;
+        font-size: 22px;
+        line-height: 1.28;
+      }
+
+      .formats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        max-width: 660px;
+      }
+
+      .format {
+        height: 62px;
+        min-width: 116px;
+        padding: 0 26px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f4f4f2;
+        color: #101010;
+        font-size: 24px;
+        font-weight: 900;
+      }
+
+      .privacy-list {
+        display: grid;
+        gap: 18px;
+        margin-top: 6px;
+      }
+
+      .privacy-item {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        color: #f4f4f2;
+        font-size: 29px;
+        font-weight: 700;
+      }
+
+      .check {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: #10a37f;
+        color: #101010;
+        font-size: 24px;
+        font-weight: 900;
+      }
+
+      .centered {
+        align-items: center;
+        text-align: center;
+      }
+
+      .centered h2 {
+        font-size: 112px;
+        max-width: 1180px;
+      }
+
+      .cta-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        margin-top: 12px;
+        color: #b8b8b4;
+        font-size: 30px;
+      }
+
+      .kbd {
+        height: 56px;
+        min-width: 82px;
+        padding: 0 20px;
+        border-radius: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #212121;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: #f4f4f2;
+        font-size: 24px;
+        font-weight: 900;
+      }
+
+      .glow,
+      .ring,
+      .grid,
+      .wordmark {
+        position: absolute;
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .glow {
+        width: 560px;
+        height: 560px;
+        border-radius: 50%;
+        background: rgba(16, 163, 127, 0.14);
+        filter: blur(34px);
+      }
+
+      .glow-a {
+        right: 120px;
+        top: 54px;
+      }
+
+      .glow-b {
+        left: 60px;
+        bottom: 0;
+        background: rgba(244, 244, 242, 0.06);
+      }
+
+      .ring {
+        right: 210px;
+        bottom: 146px;
+        width: 390px;
+        height: 390px;
+        border-radius: 50%;
+        border: 1px solid rgba(16, 163, 127, 0.22);
+      }
+
+      .grid {
+        inset: 0;
+        opacity: 0.13;
+        background-image:
+          linear-gradient(rgba(244, 244, 242, 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(244, 244, 242, 0.08) 1px, transparent 1px);
+        background-size: 80px 80px;
+      }
+
+      .wordmark {
+        right: -70px;
+        top: 650px;
+        color: rgba(244, 244, 242, 0.045);
+        font-size: 150px;
+        font-weight: 900;
+      }
+
+      .progress {
+        position: absolute;
+        left: 120px;
+        right: 120px;
+        bottom: 54px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(244, 244, 242, 0.12);
+        overflow: hidden;
+        z-index: 5;
+      }
+
+      .progress-fill {
+        width: 100%;
+        height: 100%;
+        transform-origin: left center;
+        transform: scaleX(0);
+        background: #10a37f;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="chronochat-promo"
+      data-start="0"
+      data-duration="12"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div class="grid" data-layout-ignore></div>
+      <div class="glow glow-a" data-layout-ignore></div>
+      <div class="glow glow-b" data-layout-ignore></div>
+      <div class="ring" data-layout-ignore></div>
+      <div class="wordmark" data-layout-ignore>ChronoChat</div>
+
+      <section id="scene-hero" class="scene clip" data-start="0" data-duration="3.2" data-track-index="1">
+        <div class="scene-content split">
+          <div class="hero-copy">
+            <div class="logo-row hero-logo">
+              <img class="logo" src="assets/chronochat/logo.svg" alt="ChronoChat logo" />
+              <div class="brand">ChronoChat</div>
+            </div>
+            <div class="eyebrow hero-eyebrow">Manifest V3 for ChatGPT</div>
+            <h1 class="hero-title">Long chats, instantly navigable.</h1>
+            <p class="copy hero-subtitle">
+              A native-feeling conversation map for search, filters, shortcuts, and fast jump navigation.
+            </p>
+          </div>
+          <div class="browser-frame hero-browser">
+            <img src="assets/chronochat/real-harness-open.png" alt="ChronoChat running inside ChatGPT" />
+          </div>
+        </div>
+      </section>
+
+      <section id="scene-features" class="scene clip" data-start="3.2" data-duration="3" data-track-index="1">
+        <div class="scene-content split">
+          <div class="feature-copy">
+            <div class="eyebrow">Built for dense sessions</div>
+            <h2>Map. Search. Filter. Jump.</h2>
+            <p class="copy">
+              Find the exact user or AI turn without manually scrolling through the entire thread.
+            </p>
+          </div>
+          <div class="feature-grid">
+            <article class="feature">
+              <div class="feature-mark">1</div>
+              <h3>Conversation map</h3>
+              <p>Every message becomes a clean waypoint.</p>
+            </article>
+            <article class="feature">
+              <div class="feature-mark">2</div>
+              <h3>Current-chat search</h3>
+              <p>Query the thread while keeping context visible.</p>
+            </article>
+            <article class="feature">
+              <div class="feature-mark">3</div>
+              <h3>User and AI filters</h3>
+              <p>Focus only on the turns that matter.</p>
+            </article>
+            <article class="feature">
+              <div class="feature-mark">4</div>
+              <h3>Keyboard flow</h3>
+              <p>Cmd/Ctrl + J, slash search, j/k, and Enter.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="scene-export" class="scene clip" data-start="6.2" data-duration="2.8" data-track-index="1">
+        <div class="scene-content split">
+          <div>
+            <div class="eyebrow">Export Pro v1</div>
+            <h2>Turn the whole chat into a usable artifact.</h2>
+            <p class="copy">
+              Export the full conversation while preserving semantic blocks like headings, lists, quotes, code, and images.
+            </p>
+            <div class="formats">
+              <div class="format">JSON</div>
+              <div class="format">CSV</div>
+              <div class="format">Markdown</div>
+              <div class="format">DOCX</div>
+              <div class="format">PDF</div>
+            </div>
+          </div>
+          <div class="sidebar-proof export-panel">
+            <img src="assets/chronochat/real-sidebar.png" alt="ChronoChat sidebar export controls" />
+          </div>
+        </div>
+      </section>
+
+      <section id="scene-privacy" class="scene clip" data-start="9" data-duration="3" data-track-index="1">
+        <div class="scene-content centered">
+          <div class="logo logo-bg final-logo" aria-label="ChronoChat logo"></div>
+          <div class="eyebrow final-eyebrow">Private by default</div>
+          <h2 class="final-title">No backend. No tracking. No remote runtime assets.</h2>
+          <div class="privacy-list">
+            <div class="privacy-item"><span class="check">✓</span> Works locally in the browser</div>
+            <div class="privacy-item"><span class="check">✓</span> Designed to feel coherent with ChatGPT</div>
+          </div>
+          <div class="cta-row">
+            <span class="kbd">Cmd</span>
+            <span class="kbd">J</span>
+            <span>Open ChronoChat and jump back faster.</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="progress" data-layout-ignore>
+        <div class="progress-fill"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      const tl = gsap.timeline({ paused: true });
+
+      tl.from(".glow-a", { scale: 0.92, opacity: 0.54, duration: 2.8, repeat: 4, yoyo: true, ease: "sine.inOut" }, 0);
+      tl.from(".glow-b", { scale: 0.96, opacity: 0.45, duration: 3, repeat: 3, yoyo: true, ease: "sine.inOut" }, 0);
+      tl.to(".ring", { scale: 1.08, rotation: 18, duration: 6, ease: "none" }, 0);
+      tl.to(".wordmark", { x: -32, duration: 12, ease: "none" }, 0);
+      tl.to(".progress-fill", { scaleX: 1, duration: 12, ease: "none" }, 0);
+
+      tl.from(".hero-logo", { y: 24, duration: 0.48, ease: "power3.out" }, 0);
+      tl.from(".hero-eyebrow", { y: 28, opacity: 0, duration: 0.44, ease: "power3.out" }, 0.35);
+      tl.from(".hero-title", { y: 42, opacity: 0, duration: 0.58, ease: "power3.out" }, 0.46);
+      tl.from(".hero-subtitle", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, 0.68);
+      tl.from(".hero-browser", { x: 86, scale: 0.96, opacity: 0, duration: 0.78, ease: "power3.out" }, 0.62);
+      tl.to("#scene-hero", { opacity: 0, y: -36, duration: 0.38, ease: "power2.in" }, 2.82);
+      tl.set("#scene-hero", { opacity: 0 }, 3.2);
+
+      tl.from(".feature-copy", { y: 40, opacity: 0, duration: 0.55, ease: "power3.out" }, 3.32);
+      tl.from(".feature", { y: 52, opacity: 0, scale: 0.98, duration: 0.5, stagger: 0.1, ease: "power3.out" }, 3.48);
+      tl.to("#scene-features", { opacity: 0, y: -30, duration: 0.36, ease: "power2.in" }, 5.84);
+      tl.set("#scene-features", { opacity: 0 }, 6.2);
+
+      tl.from("#scene-export .eyebrow", { y: 24, opacity: 0, duration: 0.4, ease: "power3.out" }, 6.32);
+      tl.from("#scene-export h2", { y: 42, opacity: 0, duration: 0.54, ease: "power3.out" }, 6.44);
+      tl.from("#scene-export .copy", { y: 28, opacity: 0, duration: 0.44, ease: "power3.out" }, 6.68);
+      tl.from(".format", { y: 28, opacity: 0, scale: 0.96, duration: 0.34, stagger: 0.06, ease: "power3.out" }, 6.92);
+      tl.from(".export-panel", { x: 70, opacity: 0, scale: 0.96, duration: 0.58, ease: "power3.out" }, 6.58);
+      tl.to("#scene-export", { opacity: 0, y: -28, duration: 0.34, ease: "power2.in" }, 8.68);
+      tl.set("#scene-export", { opacity: 0 }, 9);
+
+      tl.from(".final-logo", { y: 34, opacity: 0, scale: 0.9, duration: 0.45, ease: "power3.out" }, 9.16);
+      tl.from(".final-eyebrow", { y: 28, opacity: 0, duration: 0.4, ease: "power3.out" }, 9.36);
+      tl.from(".final-title", { y: 48, opacity: 0, duration: 0.58, ease: "power3.out" }, 9.5);
+      tl.from(".privacy-item", { y: 26, opacity: 0, duration: 0.38, stagger: 0.12, ease: "power3.out" }, 10.04);
+      tl.from(".cta-row", { y: 28, opacity: 0, duration: 0.42, ease: "power3.out" }, 10.5);
+
+      window.__timelines["chronochat-promo"] = tl;
+    </script>
+  </body>
+</html>

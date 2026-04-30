@@ -4,6 +4,10 @@ Navigate long ChatGPT conversations with clarity.
 
 ![ChronoChat banner](assets/github/chronochat-banner.svg)
 
+![ChronoChat HyperFrames promo cover](assets/promo/chronochat-hyperframes-cover.png)
+
+Watch the 12-second HyperFrames product promo: [chronochat-hyperframes-promo.mp4](assets/promo/chronochat-hyperframes-promo.mp4)
+
 ChronoChat is a Manifest V3 browser extension for ChatGPT that adds a native-feeling conversation map on the right side of the page. It helps you scan long threads, filter turns, search quickly, and jump back to the exact part of the conversation you need.
 
 ## Why ChronoChat
