@@ -8,13 +8,22 @@ Navigate long ChatGPT conversations with clarity.
 
 Watch the 12-second HyperFrames product promo: [chronochat-hyperframes-promo.mp4](assets/promo/chronochat-hyperframes-promo.mp4)
 
-Additional promo stills:
-[GitHub hero](assets/promo/chronochat-github-hero.png) ·
-[wide social](assets/promo/chronochat-social-wide.png) ·
-[square social](assets/promo/chronochat-social-square.png) ·
-[story](assets/promo/chronochat-social-story.png) ·
-[browser capture](assets/promo/browser-captures/chronochat-real-harness-open.png) ·
-[sidebar capture](assets/promo/browser-captures/chronochat-real-sidebar.png)
+## Promo Stills
+
+<p>
+  <img src="assets/promo/chronochat-github-hero.png" alt="ChronoChat GitHub hero" width="520" />
+  <img src="assets/promo/chronochat-social-wide.png" alt="ChronoChat wide social still" width="520" />
+</p>
+
+<p>
+  <img src="assets/promo/chronochat-social-square.png" alt="ChronoChat square social still" width="320" />
+  <img src="assets/promo/chronochat-social-story.png" alt="ChronoChat story social still" width="180" />
+</p>
+
+<p>
+  <img src="assets/promo/browser-captures/chronochat-real-harness-open.png" alt="ChronoChat browser capture with sidebar open" width="520" />
+  <img src="assets/promo/browser-captures/chronochat-real-sidebar.png" alt="ChronoChat sidebar capture" width="180" />
+</p>
 
 ChronoChat is a Manifest V3 browser extension for ChatGPT that adds a native-feeling conversation map on the right side of the page. It helps you scan long threads, filter turns, search quickly, and jump back to the exact part of the conversation you need.
 
