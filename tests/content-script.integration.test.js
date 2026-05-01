@@ -1,4 +1,5 @@
 import { loadChronoChat, flushAsync } from "./helpers/runtime.js";
+import { strFromU8, unzipSync } from "fflate";
 
 function createHostShell(messagesHtml, extraHtml = "") {
   return `
@@ -19,6 +20,18 @@ function createHostShell(messagesHtml, extraHtml = "") {
     </main>
     ${extraHtml}
   `;
+}
+
+function readBlobArrayBuffer(blob) {
+  if (typeof blob?.arrayBuffer === "function") {
+    return blob.arrayBuffer();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(blob);
+  });
 }
 
 describe("ChronoChat content script", () => {
@@ -56,6 +69,71 @@ describe("ChronoChat content script", () => {
     expect(actions?.children[1]?.textContent).toBe("Share");
   });
 
+  test("mounts the ChronoChat toggle in the current ChatGPT thread header", async () => {
+    await loadChronoChat({
+      html: `
+        <header data-testid="conversation-header">
+          <button type="button" data-testid="open-sidebar-button">Open sidebar</button>
+          <div data-testid="thread-header-right-actions-container">
+            <div data-testid="thread-header-right-actions">
+              <button type="button" data-testid="share-chat-button"></button>
+              <button
+                type="button"
+                data-testid="conversation-options-button"
+                aria-label="Open conversation options"
+              ></button>
+            </div>
+          </div>
+        </header>
+        <main>
+          <div data-message-author-role="user"><div>Live selector check</div></div>
+          <div data-message-author-role="assistant"><div>Modern header response</div></div>
+        </main>
+      `,
+    });
+
+    const actions = document.querySelector('[data-testid="thread-header-right-actions"]');
+    const toggle = document.getElementById("chatgpt-nav-toggle");
+    const toggleSlot = document.getElementById("chatgpt-nav-toggle-slot");
+
+    expect(toggle).not.toBeNull();
+    expect(actions?.firstElementChild).toBe(toggleSlot);
+    expect(toggleSlot?.contains(toggle)).toBe(true);
+    expect(actions?.children[1]?.getAttribute("data-testid")).toBe("share-chat-button");
+  });
+
+  test("does not crash when ChatGPT rerenders the header reference during toggle placement", async () => {
+    const { ns } = await loadChronoChat({
+      html: `
+        <header data-testid="conversation-header">
+          <div data-testid="thread-header-right-actions">
+            <button type="button" data-testid="share-chat-button">Share</button>
+            <button type="button" data-testid="conversation-options-button">Options</button>
+          </div>
+        </header>
+        <main>
+          <div data-message-author-role="user"><div>Live selector check</div></div>
+          <div data-message-author-role="assistant"><div>Modern header response</div></div>
+        </main>
+      `,
+    });
+
+    const actions = document.querySelector('[data-testid="thread-header-right-actions"]');
+    const staleReference = document.createElement("button");
+    staleReference.type = "button";
+    staleReference.textContent = "Share";
+    actions.appendChild(staleReference);
+
+    ns.dom.getConversationActionBar = () => actions;
+    ns.dom.getConversationActionReference = () => {
+      staleReference.remove();
+      return staleReference;
+    };
+
+    expect(() => ns.ui.syncHostTogglePosition()).not.toThrow();
+    expect(actions.lastElementChild).toBe(document.getElementById("chatgpt-nav-toggle-slot"));
+  });
+
   test("renders sidebar controls promised by the product contract", async () => {
     const { api } = await loadChronoChat({
       html: createHostShell(`
@@ -72,20 +150,22 @@ describe("ChronoChat content script", () => {
     expect(document.getElementById("chatgpt-nav-edge-toggle")).not.toBeNull();
     expect(document.getElementById("sidebar-close")).not.toBeNull();
     expect(document.getElementById("message-count")).not.toBeNull();
-      expect(document.getElementById("filter-group")).not.toBeNull();
-      expect(document.getElementById("message-search")).not.toBeNull();
-      expect(document.getElementById("message-list")).not.toBeNull();
-      expect(document.getElementById("export-group")).not.toBeNull();
-      expect(document.querySelectorAll("[data-export-format]").length).toBe(4);
-      expect(document.querySelector('[data-export-format="pdf"]')).not.toBeNull();
-      expect(document.getElementById("regex-toggle")).not.toBeNull();
-      expect(document.getElementById("case-toggle")).not.toBeNull();
-      expect(document.getElementById("sidebar-resize-handle")).not.toBeNull();
-      expect(document.getElementById("preview-controls")).not.toBeNull();
-      expect(document.getElementById("attachment-dropbox")).not.toBeNull();
-      expect(document.getElementById("attachment-types")).not.toBeNull();
-      expect(document.querySelector(".jtch-attachment-caret")).not.toBeNull();
-      expect(document.getElementById("attachment-list")).not.toBeNull();
+    expect(document.getElementById("filter-group")).not.toBeNull();
+    expect(document.getElementById("message-search")).not.toBeNull();
+    expect(document.getElementById("message-list")).not.toBeNull();
+    expect(document.getElementById("export-group")?.tagName).toBe("DETAILS");
+    expect(document.querySelector(".jtch-export-menu-button")?.textContent).toBe("Export");
+    expect(document.querySelectorAll("[data-export-format]").length).toBe(5);
+    expect(document.querySelector('[data-export-format="pdf"]')).not.toBeNull();
+    expect(document.querySelector('[data-export-format="zip"]')).not.toBeNull();
+    expect(document.getElementById("regex-toggle")).toBeNull();
+    expect(document.getElementById("case-toggle")).toBeNull();
+    expect(document.getElementById("sidebar-resize-handle")).not.toBeNull();
+    expect(document.getElementById("preview-controls")).not.toBeNull();
+    expect(document.getElementById("attachment-dropbox")).not.toBeNull();
+    expect(document.getElementById("attachment-types")).not.toBeNull();
+    expect(document.querySelector(".jtch-attachment-caret")).not.toBeNull();
+    expect(document.getElementById("attachment-list")).not.toBeNull();
     });
 
   test("renders sidebar search on runtime data", async () => {
@@ -169,6 +249,59 @@ describe("ChronoChat content script", () => {
     expect(itemText?.querySelector("code")?.textContent).toBe("codice");
   });
 
+  test("preserves ChatGPT Message writing blocks as distinct Markdown sections", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="assistant">
+          <div class="markdown prose markdown-new-styling">
+            <p>Io lo manderei così:</p>
+            <div class="group relative clear-both my-4 w-full overflow-visible">
+              <div
+                class="relative w-full overflow-clip rounded-[24px]"
+                data-testid="writing-block-container"
+              >
+                <div data-testid="writing-block-header-sticky-container">
+                  <div data-testid="writing-block-header-surface">
+                    <div class="truncate">Message</div>
+                    <button type="button" aria-label="Copy">Copy</button>
+                  </div>
+                </div>
+                <div class="writing-block-editor">
+                  <div
+                    class="ProseMirror markdown prose"
+                    contenteditable="true"
+                  >
+                    <p>Buongiorno Dottore, le scrivo per aggiornarla.</p>
+                    <p>Secondo lei conviene fare una visita allergologica?</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p>Solo se vuoi, aggiungi una frase finale.</p>
+          </div>
+        </div>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const message = ns.state.conversation.messages[0];
+    expect(message.fullText).toContain("Io lo manderei così:");
+    expect(message.fullText).toContain("**Message**");
+    expect(message.fullText).toContain(
+      "Buongiorno Dottore, le scrivo per aggiornarla.",
+    );
+    expect(message.fullText).toContain(
+      "Secondo lei conviene fare una visita allergologica?",
+    );
+    expect(message.fullText).toContain("Solo se vuoi, aggiungi una frase finale.");
+    expect(message.fullText).not.toContain("MessageBuongiorno");
+    expect(ns.state.conversation.messages).toHaveLength(1);
+    expect(document.querySelectorAll("#message-list li[data-message-index]")).toHaveLength(1);
+    expect(document.querySelector(".jtch-item-text")?.textContent).toContain("Message");
+  });
+
   test("collects uploaded file tiles and generated images in the Files dropbox", async () => {
     const imageSource = "data:image/png;base64,iVBORw0KGgo=";
     const { ns, api } = await loadChronoChat({
@@ -211,6 +344,105 @@ describe("ChronoChat content script", () => {
     );
   });
 
+  test("keeps Files dropbox controls accessible with long attachment names", async () => {
+    const previewClick = jest.fn();
+    const longName =
+      "20260424_Rendiconto_Costi_Oneri_Incentivi_con_allegati_e_note_finali_70835790.pdf";
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user">
+          <div
+            class="relative group/file-tile"
+            role="group"
+            aria-label="${longName}"
+          >
+            <button type="button" data-preview-action aria-label="${longName}"></button>
+            <div class="truncate font-semibold">${longName}</div>
+            <div class="truncate text-token-text-secondary">PDF</div>
+          </div>
+        </div>
+      `),
+    });
+    document.querySelector("[data-preview-action]").addEventListener("click", previewClick);
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    document.querySelector(".jtch-attachment-summary").click();
+    expect(document.querySelector(".jtch-attachment-summary").getAttribute("aria-label")).toBe(
+      "Conversation files, 1 file",
+    );
+    expect(document.querySelector(".jtch-attachment-item").getAttribute("aria-label")).toContain(
+      longName,
+    );
+    expect(document.querySelector(".jtch-attachment-item").getAttribute("title")).toBe(longName);
+    expect(document.querySelector(".jtch-attachment-action").getAttribute("title")).toBe(
+      `Open ${longName}`,
+    );
+
+    const openButton = document.querySelector('[data-attachment-action="open"]');
+    openButton.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await flushAsync();
+
+    expect(previewClick).toHaveBeenCalled();
+    expect(ns.state.ui.sidebarVisible).toBe(false);
+  });
+
+  test("captures live ChatGPT uploaded and generated image media wrappers", async () => {
+    const uploadedSource =
+      "https://chatgpt.com/backend-api/estuary/content?id=file_uploaded";
+    const generatedSource =
+      "https://chatgpt.com/backend-api/estuary/content?id=file_generated";
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user">
+          <button type="button" aria-label="Open image in full view">
+            <img alt="Uploaded image" src="${uploadedSource}" />
+          </button>
+          <div>test</div>
+        </div>
+        <h4>You said:</h4>
+        <h4>ChatGPT said:</h4>
+        <button type="button">
+          <img alt="Generated image" src="${generatedSource}" />
+        </button>
+        <button type="button" aria-label="Edit image">Edit</button>
+        <button type="button" aria-label="Share this image"></button>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const generatedAttachment = ns.state.conversation.attachments.find(
+      (attachment) => attachment.url === generatedSource,
+    );
+    const uploadedAttachment = ns.state.conversation.attachments.find(
+      (attachment) => attachment.url === uploadedSource,
+    );
+
+    expect(uploadedAttachment).toMatchObject({
+      name: "Uploaded image",
+      kind: "image",
+      role: "user",
+      messageIndex: 0,
+    });
+    expect(generatedAttachment).toMatchObject({
+      name: "Generated image",
+      kind: "image",
+      role: "assistant",
+      messageIndex: 1,
+    });
+    expect(ns.state.conversation.messages[1]).toMatchObject({
+      role: "assistant",
+      preview: "Message contains an image or attachment",
+    });
+    expect(document.querySelectorAll(".jtch-attachment-item.kind-image")).toHaveLength(2);
+    expect(document.getElementById("attachment-types").textContent).toContain("Image");
+  });
+
   test("downloads an attachment from the Files dropbox without persisting message text in prefs", async () => {
     const originalFetch = global.fetch;
     const anchorClick = jest
@@ -242,6 +474,7 @@ describe("ChronoChat content script", () => {
     expect(URL.createObjectURL).toHaveBeenCalled();
     expect(anchorClick).toHaveBeenCalled();
     expect(ns.state.runtime.cachedAttachmentKeys.has(attachment.cacheKey)).toBe(true);
+    expect(document.getElementById("search-meta").textContent).toBe("");
     expect(JSON.stringify(chrome.__storageState.jtch_v3_prefs)).not.toContain(
       "private generated image context",
     );
@@ -339,6 +572,47 @@ describe("ChronoChat content script", () => {
     expect(document.getElementById("attachment-types").textContent).toContain("XLS");
   });
 
+  test("keeps distinct spreadsheet artifacts when live ChatGPT gives them the same title", async () => {
+    const spreadsheetArtifact = `
+      <div class="flex flex-col gap-2 w-[80%]">
+        <div class="border-token-border-default text-token-text-primary relative overflow-hidden rounded-2xl border">
+          <div class="flex items-center justify-between gap-2 px-4 py-3 bg-token-main-surface-primary">
+            <span class="grow items-center truncate font-semibold capitalize">
+              Chronochat Test
+              <button type="button" role="combobox">Sheet1</button>
+            </span>
+          </div>
+          <div class="flex items-center justify-center bg-token-main-surface-primary">
+            <div class="border-token-border-default border-t">
+              <canvas data-testid="data-grid-canvas" tabindex="0" width="1024" height="600"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user">
+          ${spreadsheetArtifact}
+          ${spreadsheetArtifact}
+        </div>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const spreadsheetAttachments = ns.state.conversation.attachments.filter(
+      (attachment) => attachment.kind === "spreadsheet",
+    );
+    expect(spreadsheetAttachments).toHaveLength(2);
+    expect(spreadsheetAttachments.map((attachment) => attachment.name)).toEqual([
+      "Chronochat Test",
+      "Chronochat Test",
+    ]);
+    expect(document.querySelectorAll(".jtch-attachment-item.kind-spreadsheet")).toHaveLength(2);
+  });
+
   test("keeps attachment-only Excel upload tiles with aria labels", async () => {
     const { ns, api } = await loadChronoChat({
       html: createHostShell(`
@@ -362,6 +636,33 @@ describe("ChronoChat content script", () => {
       role: "user",
     });
     expect(document.getElementById("attachment-types").textContent).toContain("XLSX");
+  });
+
+  test("captures file controls exposed only through filename aria labels", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user">
+          <div>Uploaded document</div>
+          <button
+            type="button"
+            aria-label="Open visita-allergica.pdf"
+            data-testid="attachment-control"
+          ></button>
+        </div>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.attachments).toHaveLength(1);
+    expect(ns.state.conversation.attachments[0]).toMatchObject({
+      name: "visita-allergica.pdf",
+      typeLabel: "PDF",
+      kind: "file",
+      role: "user",
+    });
+    expect(document.getElementById("attachment-types").textContent).toContain("PDF");
   });
 
   test("collects spreadsheet artifacts even when ChatGPT mounts them outside message turns", async () => {
@@ -1116,10 +1417,10 @@ describe("ChronoChat content script", () => {
       expect(document.querySelector("#message-list")?.textContent).toContain("only assistant");
     });
 
-    test("search supports regex and case-sensitive modes with invalid regex status", async () => {
+    test("search stays plain case-insensitive without regex or Aa controls", async () => {
       const { api } = await loadChronoChat({
         html: createHostShell(`
-          <div data-message-author-role="user"><div>Alpha launch details</div></div>
+          <div data-message-author-role="user"><div>Alpha [draft] launch details</div></div>
           <div data-message-author-role="assistant"><div>alpha lowercase reply</div></div>
           <div data-message-author-role="user"><div>Beta plan</div></div>
         `),
@@ -1128,23 +1429,21 @@ describe("ChronoChat content script", () => {
       api.toggleSidebar(true);
       await flushAsync();
 
-      document.getElementById("regex-toggle").click();
       const search = document.getElementById("message-search");
-      search.value = "^Alpha";
+      expect(document.getElementById("regex-toggle")).toBeNull();
+      expect(document.getElementById("case-toggle")).toBeNull();
+
+      search.value = "Alpha";
       search.dispatchEvent(new Event("input", { bubbles: true }));
       expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
 
-      document.getElementById("case-toggle").click();
-      search.value = "^Alpha";
-      search.dispatchEvent(new Event("input", { bubbles: true }));
-      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(1);
-
       search.value = "[";
       search.dispatchEvent(new Event("input", { bubbles: true }));
-      expect(document.getElementById("search-meta").textContent).toContain("Invalid regex");
+      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(1);
+      expect(document.getElementById("search-meta").textContent).not.toContain("Invalid regex");
     });
 
-    test("exports JSON, CSV, Markdown, and PDF through reachable buttons", async () => {
+    test("exports JSON, CSV, Markdown, and PDF through the dropdown menu", async () => {
       const anchorClick = jest
         .spyOn(HTMLAnchorElement.prototype, "click")
         .mockImplementation(() => {});
@@ -1158,9 +1457,17 @@ describe("ChronoChat content script", () => {
       api.toggleSidebar(true);
       await flushAsync();
 
+      const exportGroup = document.getElementById("export-group");
+      expect(exportGroup.open).toBe(false);
+      document.querySelector(".jtch-export-menu-button").click();
+      expect(exportGroup.open).toBe(true);
       document.querySelector('[data-export-format="json"]').click();
+      expect(exportGroup.open).toBe(false);
+      document.querySelector(".jtch-export-menu-button").click();
       document.querySelector('[data-export-format="csv"]').click();
+      document.querySelector(".jtch-export-menu-button").click();
       document.querySelector('[data-export-format="markdown"]').click();
+      document.querySelector(".jtch-export-menu-button").click();
       document.querySelector('[data-export-format="pdf"]').click();
       await flushAsync();
 
@@ -1172,7 +1479,87 @@ describe("ChronoChat content script", () => {
       anchorClick.mockRestore();
     });
 
-    test("search mode buttons toggle visible state and immediately change results", async () => {
+    test("exports a ZIP bundle with conversation files, manifest, and fetchable attachments", async () => {
+      const originalFetch = global.fetch;
+      const anchorClick = jest
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => {});
+      global.fetch = jest.fn(async (url) => {
+        if (String(url).includes("report.pdf")) {
+          const bytes = new TextEncoder().encode("pdf-bytes");
+          return {
+            ok: true,
+            blob: async () => ({
+              size: bytes.byteLength,
+              type: "application/pdf",
+              arrayBuffer: async () => bytes.buffer,
+            }),
+          };
+        }
+        return {
+          ok: false,
+          status: 404,
+          blob: async () => new Blob(["missing"]),
+        };
+      });
+
+      const { ns, api } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user">
+            <div>Here is the report</div>
+            <a href="https://chatgpt.com/backend-api/files/report.pdf">report.pdf</a>
+          </div>
+          <div data-message-author-role="assistant">
+            <div>And here is a local preview without a URL</div>
+            <div class="relative group/file-tile" role="group" aria-label="preview-only.pdf">
+              <button type="button" aria-label="preview-only.pdf"></button>
+              <div class="truncate font-semibold">preview-only.pdf</div>
+              <div class="truncate text-token-text-secondary">PDF</div>
+            </div>
+          </div>
+        `),
+      });
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const createObjectURL = URL.createObjectURL;
+      await ns.features.downloadZipExport();
+
+      const zipBlob = createObjectURL.mock.calls.at(-1)?.[0];
+      const zipBytes = new Uint8Array(await readBlobArrayBuffer(zipBlob));
+      const files = unzipSync(zipBytes);
+      const manifest = JSON.parse(strFromU8(files["attachments-manifest.json"]));
+      const conversationJson = JSON.parse(strFromU8(files["conversation.json"]));
+      const markdown = strFromU8(files["conversation.md"]);
+
+      expect(anchorClick).toHaveBeenCalled();
+      expect(files["conversation.csv"]).toBeDefined();
+      expect(files["attachments/01-report.pdf"]).toBeDefined();
+      expect(strFromU8(files["attachments/01-report.pdf"])).toBe("pdf-bytes");
+      expect(manifest.attachments).toHaveLength(2);
+      expect(manifest.attachments[0]).toMatchObject({
+        name: "report.pdf",
+        included: true,
+        exportPath: "attachments/01-report.pdf",
+        mimeType: "application/pdf",
+      });
+      expect(manifest.attachments[1]).toMatchObject({
+        name: "preview-only.pdf",
+        included: false,
+      });
+      expect(manifest.attachments[1].reason).toContain("No readable file URL");
+      expect(conversationJson.conversation.attachmentCount).toBe(2);
+      expect(conversationJson.conversation.attachments[0].included).toBe(true);
+      expect(markdown).toContain("## Files (2)");
+      expect(document.getElementById("search-meta").textContent).toContain(
+        "ZIP exported: 1/2 files included",
+      );
+
+      global.fetch = originalFetch;
+      anchorClick.mockRestore();
+    });
+
+    test("removed search mode prefs cannot change visible results", async () => {
       const { ns, api } = await loadChronoChat({
         html: createHostShell(`
           <div data-message-author-role="user"><div>Alpha launch details</div></div>
@@ -1188,17 +1575,11 @@ describe("ChronoChat content script", () => {
       search.dispatchEvent(new Event("input", { bubbles: true }));
       expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
 
-      document.getElementById("case-toggle").click();
-      expect(ns.state.ui.search.caseSensitive).toBe(true);
-      expect(document.getElementById("case-toggle").getAttribute("aria-pressed")).toBe("true");
-      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(1);
-
-      search.value = "^Alpha";
-      search.dispatchEvent(new Event("input", { bubbles: true }));
-      document.getElementById("regex-toggle").click();
-      expect(ns.state.ui.search.regex).toBe(true);
-      expect(document.getElementById("regex-toggle").getAttribute("aria-pressed")).toBe("true");
-      expect(document.getElementById("search-meta").textContent).toContain("Regex");
+      ns.features.applySearchState({ regex: true, caseSensitive: true });
+      expect(ns.state.ui.search.regex).toBe(false);
+      expect(ns.state.ui.search.caseSensitive).toBe(false);
+      expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
+      expect(document.getElementById("search-meta").textContent).toBe("2 matches");
     });
 
     test("resizes sidebar and persists only UI preferences", async () => {
@@ -1270,12 +1651,13 @@ describe("ChronoChat content script", () => {
 
       await ns.storage.save();
       expect(chrome.__storageState.jtch_v3_prefs.previewFontSize).toBe(12);
+      expect(chrome.__storageState.jtch_v3_prefs.search).toBeUndefined();
       expect(JSON.stringify(chrome.__storageState.jtch_v3_prefs)).not.toContain(
         "private message content",
       );
     });
 
-    test("loads persisted sidebar width and search options", async () => {
+    test("loads persisted sidebar width and preview font size while ignoring removed search options", async () => {
       const { ns } = await loadChronoChat({
         html: createHostShell(`
           <div data-message-author-role="user"><div>stored prefs message</div></div>
@@ -1291,8 +1673,8 @@ describe("ChronoChat content script", () => {
 
       expect(ns.state.ui.sidebarWidth).toBe(410);
       expect(ns.state.ui.previewFontSize).toBe(14);
-      expect(ns.state.ui.search.regex).toBe(true);
-      expect(ns.state.ui.search.caseSensitive).toBe(true);
+      expect(ns.state.ui.search.regex).toBe(false);
+      expect(ns.state.ui.search.caseSensitive).toBe(false);
     });
 
     test("virtual list starts on latest messages and loads earlier matches", async () => {

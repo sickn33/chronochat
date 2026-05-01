@@ -1,6 +1,6 @@
 {
   "name": "chronochat",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "description": "A browser extension for ChatGPT that makes long conversations easier to navigate with search, filters, keyboard shortcuts, and fast jump navigation.",
   "main": "content_script.js",
   "homepage": "https://github.com/sickn33/chronochat",
@@ -21,6 +21,12 @@
     "package:extension": "npm run build && bash scripts/package-extension.sh",
     "test:smoke": "npm run build && node scripts/test-smoke.js",
     "validate": "npm test -- --runInBand && npm run build",
+    "promo:render": "remotion render promo/remotion/src/index.tsx ChronoChatPromo assets/promo/chronochat-promo.mp4 --codec=h264 --pixel-format=yuv420p --overwrite",
+    "promo:stills": "npm run promo:still:github && npm run promo:still:square && npm run promo:still:story && npm run promo:still:wide",
+    "promo:still:github": "remotion still promo/remotion/src/index.tsx GitHubHero assets/promo/chronochat-github-hero.png --overwrite",
+    "promo:still:square": "remotion still promo/remotion/src/index.tsx SocialSquare assets/promo/chronochat-social-square.png --overwrite",
+    "promo:still:story": "remotion still promo/remotion/src/index.tsx SocialStory assets/promo/chronochat-social-story.png --overwrite",
+    "promo:still:wide": "remotion still promo/remotion/src/index.tsx SocialWide assets/promo/chronochat-social-wide.png --overwrite",
     "prebuild": "echo 'Building production assets...'",
     "postbuild": "echo 'Build complete! Manifest-backed files ready.'"
   },
@@ -65,15 +71,23 @@
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@babel/preset-env": "^7.29.2",
+    "@remotion/cli": "^4.0.452",
     "@types/chrome": "^0.1.40",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "babel-jest": "^30.3.0",
     "clean-css-cli": "^5.6.3",
     "docx": "^9.6.1",
     "esbuild": "^0.28.0",
+    "fflate": "^0.8.2",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.3.0",
     "pdf-lib": "^1.17.1",
     "playwright": "^1.59.1",
-    "terser": "^5.46.1"
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "remotion": "^4.0.452",
+    "terser": "^5.46.1",
+    "typescript": "^6.0.3"
   }
 }

@@ -34,13 +34,6 @@
         );
       }
 
-      if (prefs.search && typeof prefs.search === "object") {
-        normalized.search = {
-          regex: Boolean(prefs.search.regex),
-          caseSensitive: Boolean(prefs.search.caseSensitive),
-        };
-      }
-
       return normalized;
     }
 
@@ -68,10 +61,6 @@
       return {
         sidebarWidth: state.ui.sidebarWidth,
         previewFontSize: state.ui.previewFontSize,
-        search: {
-          regex: Boolean(state.ui.search.regex),
-          caseSensitive: Boolean(state.ui.search.caseSensitive),
-        },
       };
     }
 
@@ -165,13 +154,6 @@
         if (prefs.previewFontSize) {
           state.ui.previewFontSize = prefs.previewFontSize;
         }
-        if (prefs.search) {
-          state.ui.search = {
-            ...state.ui.search,
-            ...prefs.search,
-          };
-        }
-
         return prefs;
       },
       async save() {

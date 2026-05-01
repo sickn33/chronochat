@@ -66,17 +66,28 @@
     titleRow.appendChild(title);
     titleRow.appendChild(titleMeta);
 
-    const exportGroup = document.createElement("div");
-    exportGroup.className = "jtch-export-group";
+    const exportGroup = document.createElement("details");
+    exportGroup.className = "jtch-export-menu";
     exportGroup.id = "export-group";
     exportGroup.setAttribute("aria-label", "Export conversation");
+
+    const exportSummary = document.createElement("summary");
+    exportSummary.className = "jtch-export-menu-button";
+    exportSummary.textContent = "Export";
+    exportSummary.setAttribute("aria-haspopup", "menu");
+    exportSummary.setAttribute("aria-label", "Export conversation");
+
+    const exportOptions = document.createElement("div");
+    exportOptions.className = "jtch-export-options";
+    exportOptions.setAttribute("role", "menu");
     [
       { label: "JSON", format: "json" },
       { label: "CSV", format: "csv" },
       { label: "MD", format: "markdown" },
       { label: "PDF", format: "pdf" },
+      { label: "ZIP", format: "zip" },
     ].forEach((exportOption) => {
-      exportGroup.appendChild(
+      exportOptions.appendChild(
         createButton({
           className: "jtch-export-button",
           text: exportOption.label,
@@ -85,6 +96,8 @@
         }),
       );
     });
+    exportGroup.appendChild(exportSummary);
+    exportGroup.appendChild(exportOptions);
 
     const filterGroup = document.createElement("div");
     filterGroup.className = "jtch-filter-group";
@@ -117,26 +130,6 @@
 
     searchRow.appendChild(searchInput);
 
-    const searchOptions = document.createElement("div");
-    searchOptions.className = "jtch-search-options";
-    [
-      { id: "regex-toggle", label: "Regex", option: "regex" },
-      { id: "case-toggle", label: "Aa", option: "caseSensitive" },
-    ].forEach((option) => {
-      searchOptions.appendChild(
-        createButton({
-          id: option.id,
-          className: "jtch-option-toggle",
-          text: option.label,
-          label:
-            option.option === "regex"
-              ? "Use regular expression search"
-              : "Use case sensitive search",
-          dataset: { searchOption: option.option },
-        }),
-      );
-    });
-
     const previewControls = document.createElement("div");
     previewControls.className = "jtch-preview-controls";
     previewControls.id = "preview-controls";
@@ -164,7 +157,6 @@
     header.appendChild(exportGroup);
     header.appendChild(filterGroup);
     header.appendChild(searchRow);
-    header.appendChild(searchOptions);
     header.appendChild(previewControls);
     header.appendChild(searchMeta);
 
@@ -313,7 +305,18 @@
     }
 
     if (slot.parentElement !== actionBar || slot.nextElementSibling !== reference) {
-      actionBar.insertBefore(slot, reference);
+      try {
+        if (reference.isConnected && reference.parentNode === actionBar) {
+          actionBar.insertBefore(slot, reference);
+        } else {
+          actionBar.appendChild(slot);
+        }
+      } catch (error) {
+        if (error?.name !== "NotFoundError") throw error;
+        if (actionBar.isConnected) {
+          actionBar.appendChild(slot);
+        }
+      }
     }
 
     slot.hidden = Boolean(ns.state?.ui?.sidebarVisible);

@@ -73,6 +73,8 @@
       "div.flex-1[class*='max-w-(--thread-content-max-width)']",
     ],
     hostActionBarSelectors: [
+      '[data-testid="thread-header-right-actions"]',
+      '[data-testid="thread-header-right-actions-container"]',
       '[data-testid="conversation-actions"]',
       "[data-testid*='conversation'][data-testid*='actions']",
       "header [class*='actions']",

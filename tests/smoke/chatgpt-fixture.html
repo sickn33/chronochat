@@ -7,14 +7,48 @@
   </head>
   <body>
     <header data-testid="conversation-header">
-      <div data-testid="conversation-actions">
-        <button type="button">Share</button>
-        <button type="button">Activity</button>
+      <button type="button" data-testid="open-sidebar-button">Open sidebar</button>
+      <div data-testid="thread-header-right-actions-container">
+        <div data-testid="thread-header-right-actions">
+          <button type="button" data-testid="share-chat-button" aria-label="Share">Share</button>
+          <button
+            type="button"
+            data-testid="conversation-options-button"
+            aria-label="Open conversation options"
+          >
+            Options
+          </button>
+        </div>
       </div>
     </header>
     <main>
       <div data-message-author-role="user"><div>Alpha launch details</div></div>
       <div data-message-author-role="assistant"><div>beta release checklist</div></div>
+      <div data-message-author-role="user">
+        <div
+          class="relative group/file-tile"
+          role="group"
+          aria-label="20260424_Rendiconto_Costi_Oneri_Incentivi_con_allegati_finali_70835790.pdf"
+        >
+          <button
+            type="button"
+            aria-label="20260424_Rendiconto_Costi_Oneri_Incentivi_con_allegati_finali_70835790.pdf"
+          ></button>
+          <div class="truncate font-semibold">
+            20260424_Rendiconto_Costi_Oneri_Incentivi_con_allegati_finali_70835790.pdf
+          </div>
+          <div class="truncate text-token-text-secondary">PDF</div>
+        </div>
+      </div>
+      <div data-message-author-role="assistant">
+        <div class="markdown">
+          <p>Generated chart follows.</p>
+          <img
+            alt="smoke-chart.png"
+            src="data:image/png;base64,iVBORw0KGgo="
+          />
+        </div>
+      </div>
       <div data-message-author-role="user"><div>Alpha retrospective</div></div>
     </main>
   </body>

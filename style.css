@@ -261,12 +261,12 @@
   color: rgba(15, 23, 42, 0.56) !important;
 }
 
-	.jtch-filter,
-	.jtch-export-button,
-	.jtch-option-toggle,
-	.jtch-preview-size-button,
-	.jtch-attachment-action,
-	.jtch-icon-button {
+		.jtch-filter,
+		.jtch-export-menu-button,
+		.jtch-export-button,
+		.jtch-preview-size-button,
+		.jtch-attachment-action,
+		.jtch-icon-button {
   appearance: none !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   background: rgba(255, 255, 255, 0.04) !important;
@@ -280,32 +280,32 @@
     BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
-	.theme-light .jtch-filter,
-	.theme-light .jtch-export-button,
-	.theme-light .jtch-option-toggle,
-	.theme-light .jtch-preview-size-button,
-	.theme-light .jtch-attachment-action,
-	.theme-light .jtch-icon-button {
+		.theme-light .jtch-filter,
+		.theme-light .jtch-export-menu-button,
+		.theme-light .jtch-export-button,
+		.theme-light .jtch-preview-size-button,
+		.theme-light .jtch-attachment-action,
+		.theme-light .jtch-icon-button {
   border-color: rgba(15, 23, 42, 0.08) !important;
   background: rgba(15, 23, 42, 0.04) !important;
 }
 
-	.jtch-filter:hover,
-	.jtch-export-button:hover,
-	.jtch-option-toggle:hover,
-	.jtch-preview-size-button:hover,
-	.jtch-attachment-action:hover,
-	.jtch-icon-button:hover {
+		.jtch-filter:hover,
+		.jtch-export-menu-button:hover,
+		.jtch-export-button:hover,
+		.jtch-preview-size-button:hover,
+		.jtch-attachment-action:hover,
+		.jtch-icon-button:hover {
   background: rgba(255, 255, 255, 0.08) !important;
   transform: translateY(-1px) !important;
 }
 
-	.theme-light .jtch-filter:hover,
-	.theme-light .jtch-export-button:hover,
-	.theme-light .jtch-option-toggle:hover,
-	.theme-light .jtch-preview-size-button:hover,
-	.theme-light .jtch-attachment-action:hover,
-	.theme-light .jtch-icon-button:hover {
+		.theme-light .jtch-filter:hover,
+		.theme-light .jtch-export-menu-button:hover,
+		.theme-light .jtch-export-button:hover,
+		.theme-light .jtch-preview-size-button:hover,
+		.theme-light .jtch-attachment-action:hover,
+		.theme-light .jtch-icon-button:hover {
   background: rgba(15, 23, 42, 0.08) !important;
 }
 
@@ -319,24 +319,26 @@
   line-height: 1 !important;
 }
 
-	#chatgpt-nav-toggle:focus-visible,
-	.jtch-filter:focus-visible,
-	.jtch-export-button:focus-visible,
-	.jtch-option-toggle:focus-visible,
-	.jtch-preview-size-button:focus-visible,
-	.jtch-attachment-action:focus-visible,
-	.jtch-icon-button:focus-visible,
-	.jtch-search-input:focus-visible {
+		#chatgpt-nav-toggle:focus-visible,
+		.jtch-filter:focus-visible,
+		.jtch-export-menu-button:focus-visible,
+		.jtch-export-button:focus-visible,
+			.jtch-preview-size-button:focus-visible,
+			.jtch-attachment-action:focus-visible,
+		.jtch-attachment-summary:focus-visible,
+		.jtch-icon-button:focus-visible,
+		.jtch-search-input:focus-visible {
   outline: none !important;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14) !important;
 }
 
-	#chatgpt-nav-toggle.theme-light:focus-visible,
-	.theme-light .jtch-filter:focus-visible,
-	.theme-light .jtch-export-button:focus-visible,
-	.theme-light .jtch-option-toggle:focus-visible,
-	.theme-light .jtch-preview-size-button:focus-visible,
-	.theme-light .jtch-attachment-action:focus-visible,
+		#chatgpt-nav-toggle.theme-light:focus-visible,
+		.theme-light .jtch-filter:focus-visible,
+		.theme-light .jtch-export-menu-button:focus-visible,
+		.theme-light .jtch-export-button:focus-visible,
+		.theme-light .jtch-preview-size-button:focus-visible,
+		.theme-light .jtch-attachment-action:focus-visible,
+	.theme-light .jtch-attachment-summary:focus-visible,
 	.theme-light .jtch-icon-button:focus-visible,
 	.theme-light .jtch-search-input:focus-visible {
   box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.14) !important;
@@ -348,42 +350,90 @@
 	  gap: 8px !important;
 	}
 
-.jtch-export-group,
-.jtch-search-options,
-.jtch-preview-controls {
-  display: grid !important;
-  grid-template-columns: repeat(4, 1fr) !important;
-  gap: 8px !important;
-}
-
-	.jtch-search-options {
-	  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-	}
-
 	.jtch-preview-controls {
+	  display: grid !important;
 	  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+	  gap: 8px !important;
 	}
 
-	.jtch-filter,
-	.jtch-export-button,
-	.jtch-option-toggle,
-	.jtch-preview-size-button {
-	  height: 30px !important;
-	  border-radius: 8px !important;
-	}
+		.jtch-export-menu {
+		  position: relative !important;
+		  display: block !important;
+		  min-width: 0 !important;
+		}
 
-	.jtch-filter.active,
-	.jtch-option-toggle.active,
-	.jtch-preview-size-button[aria-pressed="true"] {
-	  background: rgba(255, 255, 255, 0.08) !important;
+		.jtch-export-menu-button {
+		  align-items: center !important;
+		  border-radius: 8px !important;
+		  display: flex !important;
+		  height: 32px !important;
+		  justify-content: center !important;
+		  list-style: none !important;
+		  width: 100% !important;
+		}
+
+		.jtch-export-menu-button::-webkit-details-marker {
+		  display: none !important;
+		}
+
+		.jtch-export-menu-button::after {
+		  content: ">" !important;
+		  display: inline-block !important;
+		  font-size: 10px !important;
+		  font-weight: 800 !important;
+		  margin-left: 8px !important;
+		  transform: rotate(90deg) !important;
+		  transition: transform 0.16s ease !important;
+		}
+
+		.jtch-export-menu[open] .jtch-export-menu-button::after {
+		  transform: rotate(-90deg) !important;
+		}
+
+		.jtch-export-options {
+		  background: rgba(33, 33, 33, 0.98) !important;
+		  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+		  border-radius: 10px !important;
+		  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22) !important;
+		  display: none !important;
+		  gap: 8px !important;
+		  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+		  left: 0 !important;
+		  padding: 8px !important;
+		  position: absolute !important;
+		  right: 0 !important;
+		  top: calc(100% + 6px) !important;
+		  z-index: 2 !important;
+		}
+
+		.jtch-export-menu[open] .jtch-export-options {
+		  display: grid !important;
+		}
+
+		.theme-light .jtch-export-options {
+		  background: rgba(255, 255, 255, 0.98) !important;
+		  border-color: rgba(15, 23, 42, 0.1) !important;
+		  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.14) !important;
+		}
+
+		.jtch-filter,
+		.jtch-export-menu-button,
+		.jtch-export-button,
+		.jtch-preview-size-button {
+		  height: 30px !important;
+		  border-radius: 8px !important;
+		}
+
+		.jtch-filter.active,
+		.jtch-preview-size-button[aria-pressed="true"] {
+		  background: rgba(255, 255, 255, 0.08) !important;
 	  border-color: rgba(255, 255, 255, 0.14) !important;
 	  color: #f3f4f6 !important;
 	}
 
-	.theme-light .jtch-filter.active,
-	.theme-light .jtch-option-toggle.active,
-	.theme-light .jtch-preview-size-button[aria-pressed="true"] {
-	  background: rgba(15, 23, 42, 0.06) !important;
+		.theme-light .jtch-filter.active,
+		.theme-light .jtch-preview-size-button[aria-pressed="true"] {
+		  background: rgba(15, 23, 42, 0.06) !important;
 	  border-color: rgba(15, 23, 42, 0.12) !important;
 	  color: #111827 !important;
 }
@@ -410,8 +460,8 @@
   background: rgba(15, 23, 42, 0.03) !important;
 }
 
-	.jtch-search-meta {
-  min-height: 16px !important;
+		.jtch-search-meta {
+	  min-height: 0 !important;
   font-size: 11px !important;
   line-height: 1.4 !important;
   color: rgba(255, 255, 255, 0.62) !important;
@@ -434,6 +484,7 @@
 .jtch-attachment-dropbox {
   border-top: 1px solid rgba(255, 255, 255, 0.07) !important;
   flex: 0 0 auto !important;
+  min-width: 0 !important;
   padding: 8px !important;
 }
 
@@ -458,8 +509,10 @@
   font-size: 12px !important;
   font-weight: 700 !important;
   gap: 10px !important;
-  grid-template-columns: 1fr auto auto !important;
+  grid-template-columns: minmax(0, 1fr) auto auto !important;
   list-style: none !important;
+  min-width: 0 !important;
+  outline: none !important;
   padding: 10px 10px 9px !important;
   border-radius: 12px !important;
   background: rgba(255, 255, 255, 0.035) !important;
@@ -500,6 +553,9 @@
   font-size: 13px !important;
   font-weight: 700 !important;
   line-height: 1.2 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 .jtch-attachment-types {
@@ -567,7 +623,7 @@
 .jtch-attachment-list {
   list-style: none !important;
   margin: 0 !important;
-  max-height: 260px !important;
+  max-height: min(260px, 34vh) !important;
   overflow-y: auto !important;
   padding: 8px 0 0 !important;
 }
@@ -584,6 +640,7 @@
   grid-template-columns: 42px minmax(0, 1fr) !important;
   margin: 0 0 7px !important;
   min-height: 72px !important;
+  min-width: 0 !important;
   padding: 10px !important;
 }
 
@@ -673,8 +730,12 @@
   background: rgba(255, 255, 255, 0.06) !important;
   border-radius: 999px !important;
   display: inline-flex !important;
+  max-width: 100% !important;
   min-width: 0 !important;
+  overflow: hidden !important;
   padding: 3px 7px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 .theme-light .jtch-attachment-meta span {
@@ -691,16 +752,22 @@
 
 .jtch-attachment-actions {
   display: flex !important;
+  flex-wrap: wrap !important;
   gap: 6px !important;
   grid-column: 1 / -1 !important;
   justify-content: flex-end !important;
+  min-width: 0 !important;
 }
 
 .jtch-attachment-action {
   border-radius: 8px !important;
   height: 28px !important;
   min-width: 64px !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
   padding: 0 10px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 .jtch-attachment-action[data-attachment-action="open"] {
@@ -905,10 +972,10 @@
 	  #chatgpt-nav-sidebar,
 	  #chatgpt-nav-toggle,
 	  #chatgpt-nav-edge-toggle,
-	  .jtch-filter,
-	  .jtch-export-button,
-	  .jtch-option-toggle,
-	  .jtch-preview-size-button,
+		  .jtch-filter,
+		  .jtch-export-menu-button,
+		  .jtch-export-button,
+		  .jtch-preview-size-button,
 	  .jtch-attachment-action,
 	  .jtch-icon-button {
 	    transition: none !important;

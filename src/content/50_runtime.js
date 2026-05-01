@@ -534,21 +534,10 @@
           if (!button) return;
           event.preventDefault();
           ns.features.downloadExport(button.dataset.exportFormat);
+          exportGroup.removeAttribute("open");
         });
         exportGroup.dataset.jtchBound = "true";
       }
-
-      document.querySelectorAll("[data-search-option]").forEach((button) => {
-        if (button.dataset.jtchBound) return;
-        addEventListenerWithCleanup(button, "click", (event) => {
-          event.preventDefault();
-          const option = button.dataset.searchOption;
-          ns.features.applySearchState({
-            [option]: !state.ui.search[option],
-          });
-        });
-        button.dataset.jtchBound = "true";
-      });
 
       const previewControls = getElement("preview-controls");
       if (previewControls && !previewControls.dataset.jtchBound) {

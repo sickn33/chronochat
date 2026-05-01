@@ -149,6 +149,22 @@
     );
   }
 
+  function getMediaRoleHint(element) {
+    const image = element?.matches?.("img")
+      ? element
+      : element?.querySelector?.("img[alt], img[aria-label], img[title]");
+    const label = collapseText(
+      image?.getAttribute?.("alt") ||
+        image?.getAttribute?.("aria-label") ||
+        image?.getAttribute?.("title") ||
+        "",
+    );
+
+    if (/generated image/i.test(label)) return "assistant";
+    if (/uploaded image/i.test(label)) return "user";
+    return "unknown";
+  }
+
   function hasMeaningfulText(element) {
     if (hasAttachmentSignal(element)) {
       return true;
@@ -184,6 +200,16 @@
     } catch (_) {
       return "";
     }
+  }
+
+  function getFilenameFromLabel(label) {
+    const match = String(label || "").match(
+      /([^"'<>|\n\r]*?\.(?:pdf|csv|docx?|xlsx?|pptx?|txt|md|json|zip|png|jpe?g|gif|webp|svg|heic|avif))(?:$|[\s"'<>|])/i,
+    );
+    return collapseText(match?.[1] || "").replace(
+      /^(open|download|save|scarica|salva)\s+/i,
+      "",
+    );
   }
 
   function getFileExtension(nameOrUrl) {
@@ -273,11 +299,21 @@
 
   function extractFileTileAttachment(tile, messageIndex, role) {
     const label = getElementLabel(tile);
-    const link = tile.querySelector?.("a[href]");
-    const buttons = Array.from(tile.querySelectorAll("a[href], button, [role='button']"));
-    const downloadNode = buttons.find((button) =>
+    const link = tile.matches?.("a[href]") ? tile : tile.querySelector?.("a[href]");
+    const controls = [
+      ...(isInteractiveElement(tile) ? [tile] : []),
+      ...Array.from(tile.querySelectorAll("a[href], button, [role='button']")),
+    ];
+    const downloadNode = controls.find((button) =>
       /download|save|scarica|salva/i.test(getElementLabel(button)),
     );
+    const actionNode =
+      link ||
+      controls.find(
+        (control) =>
+          !control.matches?.("[role='combobox']") &&
+          !/download|save|scarica|salva/i.test(getElementLabel(control)),
+      );
     const typeLabel =
       collapseText(
         Array.from(tile.querySelectorAll("div, span"))
@@ -286,12 +322,13 @@
           "",
       ) || getFileExtension(label);
     return createAttachment({
-      name: label,
+      name: getFilenameFromLabel(label) || label,
       url: link?.getAttribute?.("href") || "",
       typeLabel,
       messageIndex,
       role,
       domNode: tile,
+      actionNode,
       downloadNode,
     });
   }
@@ -398,8 +435,15 @@
   function extractAttachments(node, messageIndex, role) {
     const attachments = [];
     const seen = new Set();
+    const seenSpreadsheetNodes = new Set();
     const push = (attachment) => {
       if (!attachment) return;
+      if (attachment.kind === "spreadsheet" && attachment.domNode) {
+        if (seenSpreadsheetNodes.has(attachment.domNode)) return;
+        seenSpreadsheetNodes.add(attachment.domNode);
+        attachments.push(attachment);
+        return;
+      }
       const key = `${attachment.name}|${attachment.url}|${attachment.kind}`;
       if (seen.has(key)) return;
       seen.add(key);
@@ -407,7 +451,23 @@
     };
 
     safeQuerySelectorAll(
-      '[role="group"][aria-label], [data-testid*="file" i], [class*="file-tile" i]',
+      [
+        '[role="group"][aria-label]',
+        '[data-testid*="file" i]',
+        '[class*="file-tile" i]',
+        'a[aria-label*=".pdf" i], button[aria-label*=".pdf" i], [role="button"][aria-label*=".pdf" i]',
+        'a[aria-label*=".doc" i], button[aria-label*=".doc" i], [role="button"][aria-label*=".doc" i]',
+        'a[aria-label*=".csv" i], button[aria-label*=".csv" i], [role="button"][aria-label*=".csv" i]',
+        'a[aria-label*=".xls" i], button[aria-label*=".xls" i], [role="button"][aria-label*=".xls" i]',
+        'a[aria-label*=".ppt" i], button[aria-label*=".ppt" i], [role="button"][aria-label*=".ppt" i]',
+        'a[aria-label*=".json" i], button[aria-label*=".json" i], [role="button"][aria-label*=".json" i]',
+        'a[aria-label*=".md" i], button[aria-label*=".md" i], [role="button"][aria-label*=".md" i]',
+        'a[aria-label*=".txt" i], button[aria-label*=".txt" i], [role="button"][aria-label*=".txt" i]',
+        'a[title*=".pdf" i], button[title*=".pdf" i], [role="button"][title*=".pdf" i]',
+        'a[title*=".doc" i], button[title*=".doc" i], [role="button"][title*=".doc" i]',
+        'a[title*=".csv" i], button[title*=".csv" i], [role="button"][title*=".csv" i]',
+        'a[title*=".xls" i], button[title*=".xls" i], [role="button"][title*=".xls" i]',
+      ].join(", "),
       node,
     )
       .filter(isLikelyFileTile)
@@ -453,8 +513,15 @@
   function collectConversationAttachments(messages, rootNode) {
     const attachments = [];
     const seen = new Set();
+    const seenSpreadsheetNodes = new Set();
     const push = (attachment) => {
       if (!attachment) return;
+      if (attachment.kind === "spreadsheet" && attachment.domNode) {
+        if (seenSpreadsheetNodes.has(attachment.domNode)) return;
+        seenSpreadsheetNodes.add(attachment.domNode);
+        attachments.push(attachment);
+        return;
+      }
       const identity = getAttachmentIdentity(attachment);
       if (seen.has(identity)) return;
       seen.add(identity);
@@ -488,6 +555,46 @@
         (other) => other !== node && other.contains(node),
       );
     });
+  }
+
+  function compareDocumentOrder(left, right) {
+    if (left === right) return 0;
+    const position = left.compareDocumentPosition?.(right) || 0;
+    if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    return 0;
+  }
+
+  function getOrphanMediaMessageNodes(container, existingNodes) {
+    const existing = Array.from(existingNodes || []);
+    const seen = new Set();
+
+    return safeQuerySelectorAll("img[src]", container || document)
+      .filter((image) => {
+        if (!isVisibleElement(image) || isChronoChatNode(image)) return false;
+        if (getMediaRoleHint(image) === "unknown") return false;
+        return !existing.some((node) => node === image || node.contains(image));
+      })
+      .map((image) => {
+        return (
+          image.closest?.("button, [role='button'], figure") ||
+          image.parentElement ||
+          image
+        );
+      })
+      .filter((node) => {
+        if (!node || seen.has(node)) return false;
+        if (
+          existing.some(
+            (existingNode) =>
+              existingNode === node || existingNode.contains(node),
+          )
+        ) {
+          return false;
+        }
+        seen.add(node);
+        return true;
+      });
   }
 
   function getChatContainer() {
@@ -567,6 +674,9 @@
       if (nestedRole !== "unknown") return nestedRole;
     }
 
+    const mediaRoleHint = getMediaRoleHint(node);
+    if (mediaRoleHint !== "unknown") return mediaRoleHint;
+
     const hints = [
       node.getAttribute?.("data-testid"),
       node.getAttribute?.("aria-label"),
@@ -598,9 +708,18 @@
 
   function isLikelyUiArtifact(node) {
     if (!node) return false;
+    if (node.querySelector?.('[data-testid="writing-block-container"]')) return false;
+    if (
+      node.querySelector?.(
+        'form, textarea, [data-testid*="composer"], [class*="composer"], [placeholder]',
+      )
+    ) {
+      return true;
+    }
+    if (node.matches?.("[data-message-author-role]")) return false;
     return Boolean(
       node.querySelector?.(
-        'form, textarea, [contenteditable="true"], [contenteditable="plaintext-only"], [data-testid*="composer"], [class*="composer"], [placeholder]',
+        '[contenteditable="true"], [contenteditable="plaintext-only"]',
       ),
     );
   }
@@ -710,6 +829,25 @@
     );
   }
 
+  function writingBlockToMarkdown(element) {
+    const title =
+      getElementLabel(
+        element.querySelector?.(
+          '[data-testid="writing-block-header-surface"] [class*="truncate"]',
+        ),
+      ) ||
+      getElementLabel(element.querySelector?.('[data-testid="writing-block-header-surface"]')) ||
+      "Message";
+    const editor =
+      element.querySelector?.(".writing-block-editor .ProseMirror") ||
+      element.querySelector?.(".writing-block-editor");
+    const content = editor ? childrenToMarkdown(editor) : "";
+
+    return normalizeMarkdown(
+      [`**${title || "Message"}**`, content].filter(Boolean).join("\n\n"),
+    );
+  }
+
   function elementToMarkdown(element) {
     if (!element) return "";
     if (element.nodeType === Node.TEXT_NODE) {
@@ -718,6 +856,9 @@
     if (element.nodeType !== Node.ELEMENT_NODE) return "";
 
     const tagName = element.tagName.toLowerCase();
+    if (element.getAttribute?.("data-testid") === "writing-block-container") {
+      return writingBlockToMarkdown(element);
+    }
     if (element.matches?.(".whitespace-pre-wrap")) return preWrapToMarkdown(element);
     if (tagName === "pre") return codeFenceFromPre(element);
     if (tagName === "table") return tableToMarkdown(element);
@@ -862,8 +1003,14 @@
   function getConversationActionReference(actionBar) {
     const elements = getInteractiveElements(actionBar);
     return (
-      elements.find((element) => /share/i.test(getElementLabel(element))) ||
-      elements.find((element) => /activity/i.test(getElementLabel(element))) ||
+      elements.find((element) => {
+        const testId = element.getAttribute?.("data-testid") || "";
+        return /share-chat-button|share/i.test(testId) || /share/i.test(getElementLabel(element));
+      }) ||
+      elements.find((element) => {
+        const testId = element.getAttribute?.("data-testid") || "";
+        return /activity/i.test(testId) || /activity/i.test(getElementLabel(element));
+      }) ||
       elements[elements.length - 1] ||
       null
     );
@@ -1046,6 +1193,9 @@
     );
 
     let nodes = [...primarySet, ...fallbackSet];
+    nodes = [...nodes, ...getOrphanMediaMessageNodes(container || document, nodes)].sort(
+      compareDocumentOrder,
+    );
     nodes = filterRootMessageCandidates(nodes);
 
     const messages = nodes.reduce((collectedMessages, node) => {
