@@ -13,6 +13,7 @@ rm -f "$ZIP_PATH"
 zip -rq "$ZIP_PATH" \
   manifest.json \
   content_script.js \
+  page_bridge.js \
   service_worker.js \
   style.css \
   assets/icons \

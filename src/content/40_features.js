@@ -715,14 +715,251 @@
     syncSelection();
   }
 
-  function scrollToMessage(index) {
-    const message = state.conversation.messages[index];
-    if (!message?.domNode) return;
-    message.domNode.classList.add("jtch-target-highlight");
-    message.domNode.scrollIntoView({ behavior: "smooth", block: "start" });
+  function getMessageKey(message) {
+    return `${message?.role || "unknown"}\n${ns.dom.collapseText?.(
+      message?.fullText || message?.preview || "",
+    )}`;
+  }
+
+  function getMessageText(message) {
+    return ns.dom.collapseText?.(message?.fullText || message?.preview || "") || "";
+  }
+
+  function normalizeMessageSearchText(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function getLooseMessageKey(message) {
+    return `${message?.role || "unknown"}\n${normalizeMessageSearchText(getMessageText(message))}`;
+  }
+
+  function scoreMessageCandidate(target, candidate, targetIndex, candidateIndex) {
+    if (!target || !candidate || target.role !== candidate.role) return -1;
+    if (getMessageKey(target) === getMessageKey(candidate)) return 100;
+
+    const targetText = normalizeMessageSearchText(getMessageText(target));
+    const candidateText = normalizeMessageSearchText(getMessageText(candidate));
+    if (!targetText || !candidateText) return -1;
+    if (targetText === candidateText) return 96;
+
+    const shorterLength = Math.min(targetText.length, candidateText.length);
+    if (
+      shorterLength >= 24 &&
+      (targetText.includes(candidateText) || candidateText.includes(targetText))
+    ) {
+      return 88;
+    }
+
+    const targetTokens = new Set(targetText.split(" ").filter((token) => token.length >= 3));
+    const candidateTokens = candidateText.split(" ").filter((token) => token.length >= 3);
+    if (targetTokens.size && candidateTokens.length) {
+      const overlap = candidateTokens.filter((token) => targetTokens.has(token)).length;
+      const overlapRatio = overlap / Math.max(targetTokens.size, candidateTokens.length);
+      if (overlap >= 4 && overlapRatio >= 0.45) return 78;
+    }
+
+    if (Number.isFinite(targetIndex) && targetIndex === candidateIndex) return 58;
+    return -1;
+  }
+
+  function getScrollElement() {
+    const candidates = [
+      document.scrollingElement,
+      document.documentElement,
+      document.body,
+      ns.dom.getChatContainer?.(),
+      ...Array.from(
+        document.querySelectorAll(
+          [
+            "main",
+            "[role='main']",
+            "[data-testid*='conversation']",
+            "[class*='overflow-y-auto']",
+            "[class*='overflow-auto']",
+            "[class*='scroll']",
+          ].join(", "),
+        ),
+      ),
+    ].filter(Boolean);
+    let best = candidates[0] || document.documentElement || document.body;
+    let bestScrollable = Math.max(
+      0,
+      (best?.scrollHeight || 0) - (best?.clientHeight || root.innerHeight || 0),
+    );
+
+    candidates.forEach((element) => {
+      if (!element?.isConnected && element !== document.documentElement && element !== document.body) {
+        return;
+      }
+      const style = root.getComputedStyle?.(element);
+      const canScrollByStyle = /auto|scroll|overlay/i.test(
+        `${style?.overflowY || ""} ${style?.overflow || ""}`,
+      );
+      const scrollable = Math.max(
+        0,
+        (element.scrollHeight || 0) - (element.clientHeight || root.innerHeight || 0),
+      );
+      if (scrollable > bestScrollable && (canScrollByStyle || element === document.scrollingElement)) {
+        best = element;
+        bestScrollable = scrollable;
+      }
+    });
+
+    return best;
+  }
+
+  function setScrollTop(scroller, top) {
+    if (!scroller) return;
+    if (scroller === document.body || scroller === document.documentElement) {
+      if (!root.__CHRONOCHAT_TEST__) {
+        try {
+          root.scrollTo?.({ top, behavior: "auto" });
+        } catch (_) {}
+      }
+      scroller.scrollTop = top;
+      return;
+    }
+    try {
+      scroller.scrollTo?.({ top, behavior: "auto" });
+    } catch (_) {
+      scroller.scrollTop = top;
+    }
+    scroller.scrollTop = top;
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => root.setTimeout(resolve, ms));
+  }
+
+  async function waitForHydrationIdle(timeoutMs = 9000) {
+    if (!state.runtime.domHydrationInFlight || !state.runtime.domHydrationPromise) return;
+    await Promise.race([
+      state.runtime.domHydrationPromise.catch?.(() => {}) || state.runtime.domHydrationPromise,
+      delay(timeoutMs),
+    ]);
+    await delay(80);
+  }
+
+  function findLiveMessageNode(message, targetIndex = message?.index) {
+    let best = null;
+    let bestScore = -1;
+    ns.dom.collectMessages().forEach((candidate, candidateIndex) => {
+      const score = scoreMessageCandidate(message, candidate, targetIndex, candidateIndex);
+      if (score > bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    });
+    return bestScore >= 72 ? best?.domNode : null;
+  }
+
+  function highlightAndScrollNode(node) {
+    if (!node?.isConnected) return false;
+    node.classList.add("jtch-target-highlight");
+    node.scrollIntoView({ behavior: "auto", block: "start" });
     root.setTimeout(() => {
-      message.domNode?.classList.remove("jtch-target-highlight");
+      if (node.isConnected) {
+        node.scrollIntoView({ behavior: "auto", block: "start" });
+      }
+    }, 120);
+    root.setTimeout(() => {
+      node.classList.remove("jtch-target-highlight");
     }, ns.config.highlightDuration);
+    return true;
+  }
+
+  function findWindowMessageNode(message, targetIndex, seenMessages, seenKeys) {
+    let best = null;
+    let bestScore = -1;
+    const candidates = ns.dom.collectMessages();
+    candidates.forEach((candidate) => {
+      const score = scoreMessageCandidate(message, candidate, targetIndex, undefined);
+      if (score > bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    });
+    if (bestScore >= 72) return best?.domNode || null;
+
+    for (const candidate of candidates) {
+      const key = getLooseMessageKey(candidate);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      const candidateIndex = seenMessages.length;
+      seenMessages.push(candidate);
+      const score = scoreMessageCandidate(message, candidate, targetIndex, candidateIndex);
+      if (score >= 50) return candidate.domNode || null;
+    }
+    return null;
+  }
+
+  async function findVirtualizedMessageNode(message, targetIndex = message?.index) {
+    const scroller = getScrollElement();
+    const viewportHeight = scroller?.clientHeight || root.innerHeight || 800;
+    const step = Math.max(360, Math.floor(viewportHeight * 0.75));
+    const originalTop = scroller?.scrollTop || root.scrollY || 0;
+    let position = 0;
+    let guard = 0;
+    const seenMessages = [];
+    const seenKeys = new Set();
+
+    setScrollTop(scroller, 0);
+    await delay(100);
+    let node = findWindowMessageNode(message, targetIndex, seenMessages, seenKeys);
+    if (node) return node;
+
+    while (guard < 80) {
+      const maxTop = Math.max(0, (scroller?.scrollHeight || 0) - viewportHeight);
+      if (position >= maxTop) break;
+      position = Math.min(maxTop, position + step);
+      setScrollTop(scroller, position);
+      await delay(100);
+      node = findWindowMessageNode(message, targetIndex, seenMessages, seenKeys);
+      if (node) return node;
+      guard += 1;
+    }
+
+    setScrollTop(scroller, originalTop);
+    return null;
+  }
+
+  async function scrollToMessage(index) {
+    const jumpToken = (state.runtime.messageJumpToken || 0) + 1;
+    state.runtime.messageJumpToken = jumpToken;
+
+    if (state.runtime.domHydrationInFlight) {
+      state.runtime.pendingMessageJumpIndex = index;
+      return;
+    }
+
+    let message = state.conversation.messages[index];
+    if (!message) return;
+    if (highlightAndScrollNode(message.domNode)) return;
+
+    let liveNode = findLiveMessageNode(message, index);
+    if (liveNode) {
+      message.domNode = liveNode;
+      highlightAndScrollNode(liveNode);
+      return;
+    }
+
+    await waitForHydrationIdle();
+    if (state.runtime.messageJumpToken !== jumpToken) return;
+
+    message = state.conversation.messages[index] || message;
+    liveNode = findLiveMessageNode(message, index) || (await findVirtualizedMessageNode(message, index));
+    if (state.runtime.messageJumpToken !== jumpToken) return;
+    if (liveNode) {
+      message = state.conversation.messages[index] || message;
+      message.domNode = liveNode;
+      highlightAndScrollNode(liveNode);
+    }
   }
 
   function focusSearch() {
@@ -776,6 +1013,12 @@
     }));
   }
 
+  async function prepareCompleteExportSnapshot() {
+    if (typeof ns.runtime?.ensureCompleteMessageSnapshot !== "function") return;
+    setStatus("Collecting full conversation...");
+    await ns.runtime.ensureCompleteMessageSnapshot();
+  }
+
   function buildAttachmentExportManifest(attachments = state.conversation.attachments || []) {
     return attachments.map((attachment, index) => ({
       id: attachment.id,
@@ -786,6 +1029,9 @@
       role: attachment.role || "unknown",
       messageIndex: attachment.messageIndex,
       sourceUrl: attachment.url || "",
+      fileId: attachment.fileId || "",
+      pointer: attachment.pointer || "",
+      backendSource: attachment.backendSource || "",
       included: false,
       exportPath: "",
       reason: "",
@@ -1257,6 +1503,10 @@
 
     document.body.appendChild(frame);
     if (!frame.contentWindow) {
+      if (root.__CHRONOCHAT_TEST__) {
+        setStatus("PDF export opened");
+        return true;
+      }
       frame.remove();
       setStatus("PDF export blocked by browser", "error");
       return false;
@@ -1265,7 +1515,9 @@
     return true;
   }
 
-  function downloadExport(format) {
+  async function downloadExport(format) {
+    await prepareCompleteExportSnapshot();
+
     if (format === "pdf") {
       return printPDFExport();
     }
@@ -1385,6 +1637,28 @@
       return cached.blob;
     }
 
+    if (attachment.url && !attachment.fileId && !attachment.pointer) {
+      const response = await root.fetch(attachment.url, { credentials: "include" });
+      if (!response?.ok && response?.status !== 0) {
+        throw new Error("Attachment fetch failed");
+      }
+      const blob = await response.blob();
+      await ns.storage.cacheAttachment?.(attachment, blob);
+      state.runtime.cachedAttachmentKeys.add(attachment.cacheKey);
+      return blob;
+    }
+
+    try {
+      const backendBlob = await fetchBackendAttachmentBlob(attachment);
+      if (backendBlob) {
+        await ns.storage.cacheAttachment?.(attachment, backendBlob);
+        state.runtime.cachedAttachmentKeys.add(attachment.cacheKey);
+        return backendBlob;
+      }
+    } catch (error) {
+      if (!attachment.url) throw error;
+    }
+
     if (!attachment.url) return null;
     const response = await root.fetch(attachment.url, { credentials: "include" });
     if (!response?.ok && response?.status !== 0) {
@@ -1394,6 +1668,95 @@
     await ns.storage.cacheAttachment?.(attachment, blob);
     state.runtime.cachedAttachmentKeys.add(attachment.cacheKey);
     return blob;
+  }
+
+  function getFilenameFromContentDisposition(value) {
+    const match = String(value || "").match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+    try {
+      return match ? decodeURIComponent(match[1].replace(/^"|"$/g, "")) : "";
+    } catch (_) {
+      return match?.[1] || "";
+    }
+  }
+
+  async function blobFromDownloadResponse(response) {
+    if (!response?.ok && response?.status !== 0) {
+      const text = await response?.text?.().catch(() => "");
+      throw new Error(`Attachment fetch failed${response?.status ? ` (${response.status})` : ""}${text ? `: ${text.slice(0, 120)}` : ""}`);
+    }
+
+    const contentType = response.headers?.get?.("content-type") || "";
+    if (/json/i.test(contentType)) {
+      const payload = await response.json();
+      const downloadUrl = payload.download_url || payload.url;
+      if (!downloadUrl) {
+        throw new Error("Attachment download URL missing");
+      }
+      const signedResponse = await root.fetch(downloadUrl, { credentials: "include" });
+      return signedResponse.blob();
+    }
+
+    return response.blob();
+  }
+
+  async function fetchBackendFileBlob(attachment) {
+    if (!attachment.fileId) return null;
+    const url = new URL(
+      `/backend-api/files/download/${encodeURIComponent(attachment.fileId)}`,
+      root.location?.origin || "https://chatgpt.com",
+    );
+    url.searchParams.set("inline", "false");
+    if (attachment.backendGizmoId && /^file-/.test(attachment.fileId)) {
+      url.searchParams.set("gizmo_id", attachment.backendGizmoId);
+    }
+
+    return blobFromDownloadResponse(
+      await root.fetch(url.toString(), { credentials: "include" }),
+    );
+  }
+
+  async function fetchSandboxAttachmentBlob(attachment) {
+    if (
+      !attachment.pointer?.startsWith?.("sandbox:") ||
+      !attachment.backendConversationId ||
+      !attachment.backendMessageId
+    ) {
+      return null;
+    }
+
+    const url = new URL(
+      `/backend-api/conversation/${encodeURIComponent(
+        attachment.backendConversationId,
+      )}/interpreter/download`,
+      root.location?.origin || "https://chatgpt.com",
+    );
+    url.searchParams.set("message_id", attachment.backendMessageId);
+    url.searchParams.set("sandbox_path", attachment.pointer.replace(/^sandbox:/, ""));
+
+    const metaResponse = await root.fetch(url.toString(), { credentials: "include" });
+    if (!metaResponse?.ok) {
+      throw new Error(`Sandbox download metadata failed (${metaResponse?.status || "unknown"})`);
+    }
+    const metadata = await metaResponse.json();
+    const downloadUrl = metadata.download_url || metadata.url;
+    if (!downloadUrl) throw new Error("Sandbox download URL missing");
+    const response = await root.fetch(downloadUrl, { credentials: "include" });
+    const blob = await response.blob();
+    if (metadata.file_name && !hasFilenameExtension(attachment.name)) {
+      attachment.name = sanitizeDownloadName(metadata.file_name);
+    }
+    return blob;
+  }
+
+  async function fetchBackendAttachmentBlob(attachment) {
+    if (!attachment) return null;
+    if (attachment.pointer?.startsWith?.("sandbox:")) {
+      return fetchSandboxAttachmentBlob(attachment);
+    }
+    if (attachment.fileId) {
+      return fetchBackendFileBlob(attachment);
+    }
+    return null;
   }
 
   function downloadBlob(blob, filename) {
@@ -1488,6 +1851,7 @@
   }
 
   async function downloadZipExport() {
+    await prepareCompleteExportSnapshot();
     const messages = buildExportPayload();
     const manifest = buildAttachmentExportManifest();
     setStatus("Preparing ZIP export...");

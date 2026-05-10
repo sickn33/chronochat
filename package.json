@@ -1,6 +1,6 @@
 {
   "name": "chronochat",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "A browser extension for ChatGPT that makes long conversations easier to navigate with search, filters, keyboard shortcuts, and fast jump navigation.",
   "main": "content_script.js",
   "homepage": "https://github.com/sickn33/chronochat",
@@ -20,6 +20,7 @@
     "build:style": "node scripts/build-style.js",
     "package:extension": "npm run build && bash scripts/package-extension.sh",
     "test:smoke": "npm run build && node scripts/test-smoke.js",
+    "test:smoke:alpine": "npm run build && node scripts/test-alpine-chat-smoke.js",
     "validate": "npm test -- --runInBand && npm run build",
     "promo:render": "remotion render promo/remotion/src/index.tsx ChronoChatPromo assets/promo/chronochat-promo.mp4 --codec=h264 --pixel-format=yuv420p --overwrite",
     "promo:stills": "npm run promo:still:github && npm run promo:still:square && npm run promo:still:story && npm run promo:still:wide",

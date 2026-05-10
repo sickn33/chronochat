@@ -143,6 +143,36 @@ async function main() {
       throw new Error("export dropdown did not open and close correctly");
     }
 
+    const sidebarMessages = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll("#message-list li[data-message-index]"),
+      ).map((node) => node.textContent || ""),
+    );
+    if (sidebarMessages.some((text) => text.includes("Niccolò Lucioli Pro"))) {
+      throw new Error("profile menu chrome was collected as a conversation message");
+    }
+
+    const jumpResult = await page.evaluate(async () => {
+      const targetItem = Array.from(
+        document.querySelectorAll("#message-list li[data-message-index]"),
+      ).find((node) => node.textContent?.includes("beta release checklist"));
+      if (!targetItem) {
+        return { ok: false, reason: "target sidebar item missing" };
+      }
+
+      targetItem.click();
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+
+      const highlighted = document.querySelector(".jtch-target-highlight");
+      return {
+        ok: Boolean(highlighted?.textContent?.includes("beta release checklist")),
+        highlightedText: highlighted?.textContent || "",
+      };
+    });
+    if (!jumpResult.ok) {
+      throw new Error(`message jump failed: ${JSON.stringify(jumpResult)}`);
+    }
+
     await page.click(".jtch-attachment-summary");
     await page.waitForFunction(
       () => document.getElementById("attachment-dropbox")?.open,
@@ -247,7 +277,7 @@ async function main() {
     );
 
     console.log(
-      "SMOKE PASS: toggle injection, Files dropbox UI, sidebar open/close, and keyboard shortcuts",
+      "SMOKE PASS: toggle injection, profile filtering, message jump, Files dropbox UI, sidebar open/close, and keyboard shortcuts",
     );
   } finally {
     await context?.close();

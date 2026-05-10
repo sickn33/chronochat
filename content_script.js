@@ -207,10 +207,18 @@
             refreshDebounced: null,
             savePrefsDebounced: null,
             cachedAttachmentKeys: /* @__PURE__ */ new Set(),
+            domMessageCache: [],
+            domHydrationInFlight: false,
+            domHydrationPromise: null,
+            domHydrationTimeoutId: null,
+            domHydratedConversationId: null,
+            messageJumpToken: 0,
+            pendingMessageJumpIndex: null,
             resizingSidebar: false,
             hostThemeObserver: null,
             hostUiObserver: null,
             hostUiSync: null,
+            hostUiReady: false,
             hostPanelOpen: false,
             hostStyleState: null,
             previewRestorePending: false,
@@ -576,7 +584,14 @@
           role,
           domNode,
           actionNode,
-          downloadNode
+          downloadNode,
+          fileId,
+          pointer,
+          backendConversationId,
+          backendMessageId,
+          backendGizmoId,
+          backendSource,
+          metadata
         }) {
           const normalizedUrl = getUrl(url);
           const fallbackName = getFilenameFromUrl(normalizedUrl);
@@ -597,7 +612,14 @@
             thumbnailUrl: resolvedKind === "image" ? normalizedUrl : "",
             domNode,
             actionNode,
-            downloadNode
+            downloadNode,
+            fileId,
+            pointer,
+            backendConversationId,
+            backendMessageId,
+            backendGizmoId,
+            backendSource,
+            metadata
           };
         }
         function getDirectText(element) {
@@ -764,11 +786,17 @@
           return attachments;
         }
         function getAttachmentIdentity(attachment) {
-          return `${attachment.name}|${attachment.url}|${attachment.kind}`;
+          const source = attachment.kind === "image" ? attachment.url || attachment.fileId || attachment.pointer || "" : "";
+          return `${attachment.name}|${attachment.kind}|${source}`;
+        }
+        function hasReadableAttachmentSource(attachment) {
+          return Boolean(
+            attachment?.url || attachment?.fileId || attachment?.pointer?.startsWith?.("sandbox:")
+          );
         }
         function collectConversationAttachments(messages, rootNode) {
           const attachments = [];
-          const seen = /* @__PURE__ */ new Set();
+          const seen = /* @__PURE__ */ new Map();
           const seenSpreadsheetNodes = /* @__PURE__ */ new Set();
           const push = (attachment) => {
             if (!attachment) return;
@@ -779,8 +807,15 @@
               return;
             }
             const identity = getAttachmentIdentity(attachment);
-            if (seen.has(identity)) return;
-            seen.add(identity);
+            if (seen.has(identity)) {
+              const existingIndex = seen.get(identity);
+              const existing = attachments[existingIndex];
+              if (!hasReadableAttachmentSource(existing) && hasReadableAttachmentSource(attachment)) {
+                attachments[existingIndex] = attachment;
+              }
+              return;
+            }
+            seen.set(identity, attachments.length);
             attachments.push(attachment);
           };
           messages.forEach((message) => {
@@ -796,13 +831,212 @@
         }
         function filterRootMessageCandidates(nodes) {
           const candidates = nodes.filter(
-            (node) => isVisibleElement(node) && hasMeaningfulText(node) && !isChronoChatNode(node)
+            (node) => isVisibleElement(node) && hasMeaningfulText(node) && !isLikelyUiArtifact(node) && !isChronoChatNode(node)
           );
           return candidates.filter((node) => {
             return !candidates.some(
               (other) => other !== node && other.contains(node)
             );
           });
+        }
+        function getRoleHeadingInfo(element) {
+          const label = collapseText(element?.textContent || "");
+          if (/^you said:?$/i.test(label)) return { role: "user" };
+          if (/^chatgpt said:?$/i.test(label)) return { role: "assistant" };
+          return null;
+        }
+        function getRoleHeadingNodes(context) {
+          return safeQuerySelectorAll("h1, h2, h3, h4, h5, h6, [role='heading']", context).filter((element) => getRoleHeadingInfo(element));
+        }
+        function countRoleHeadings(element) {
+          return getRoleHeadingNodes(element).length;
+        }
+        function resolveRoleHeadingMessageNode(heading, boundary) {
+          let current = heading?.parentElement || null;
+          let best = null;
+          let depth = 0;
+          while (current && current !== document.body && current !== boundary?.parentElement && depth < 8) {
+            if (isChronoChatNode(current) || isLikelyUiArtifact(current)) {
+              break;
+            }
+            const headingCount = countRoleHeadings(current);
+            if (headingCount > 1) {
+              break;
+            }
+            if (headingCount === 1 && hasMeaningfulText(current)) {
+              best = current;
+            }
+            current = current.parentElement;
+            depth += 1;
+          }
+          return best;
+        }
+        function getRoleHeadingMessageNodes(context) {
+          const boundary = context || document;
+          const seen = /* @__PURE__ */ new Set();
+          return getRoleHeadingNodes(boundary).map((heading) => resolveRoleHeadingMessageNode(heading, boundary)).filter((node) => {
+            if (!node || seen.has(node)) return false;
+            seen.add(node);
+            return true;
+          });
+        }
+        function getMessageActionInfo(element) {
+          const label = getElementLabel(element);
+          if (/^your message actions$/i.test(label)) return { role: "user" };
+          if (/^response actions$/i.test(label)) return { role: "assistant" };
+          return null;
+        }
+        function getMessageActionNodes(context) {
+          return safeQuerySelectorAll("[aria-label], [role='group'], div", context).filter(
+            (element) => getMessageActionInfo(element)
+          );
+        }
+        function countMessageActions(element) {
+          return getMessageActionNodes(element).length;
+        }
+        function countRoleMarkers(element) {
+          const selfMarker = element?.matches?.("[data-message-author-role]") ? 1 : 0;
+          return selfMarker + safeQuerySelectorAll("[data-message-author-role]", element).length;
+        }
+        function isSingleTurnCandidate(element) {
+          if (!element) return false;
+          return countRoleHeadings(element) <= 1 && countMessageActions(element) <= 1 && countRoleMarkers(element) <= 1;
+        }
+        function resolveActionDelimitedMessageNode(actionNode, boundary) {
+          let current = actionNode?.parentElement || null;
+          let best = null;
+          let depth = 0;
+          while (current && current !== document.body && current !== boundary?.parentElement && depth < 8) {
+            if (isChronoChatNode(current) || isLikelyUiArtifact(current)) {
+              break;
+            }
+            const actionCount = countMessageActions(current);
+            if (actionCount > 1) {
+              break;
+            }
+            if (actionCount === 1 && hasMeaningfulText(current)) {
+              best = current;
+            }
+            current = current.parentElement;
+            depth += 1;
+          }
+          return best;
+        }
+        function getActionDelimitedMessageNodes(context) {
+          const boundary = context || document;
+          const seen = /* @__PURE__ */ new Set();
+          return getMessageActionNodes(boundary).map((actionNode) => resolveActionDelimitedMessageNode(actionNode, boundary)).filter((node) => {
+            if (!node || seen.has(node)) return false;
+            seen.add(node);
+            return true;
+          });
+        }
+        function parseRgbColor(value) {
+          const match = String(value || "").match(
+            /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+%?))?/i
+          );
+          if (!match) return null;
+          const alphaValue = match[4];
+          const alpha = alphaValue?.endsWith?.("%") ? Number.parseFloat(alphaValue) / 100 : alphaValue === void 0 ? 1 : Number.parseFloat(alphaValue);
+          return {
+            r: Number(match[1]),
+            g: Number(match[2]),
+            b: Number(match[3]),
+            a: Number.isFinite(alpha) ? alpha : 1
+          };
+        }
+        function getColorLuminance(color) {
+          return color ? (color.r * 299 + color.g * 587 + color.b * 114) / 1e3 : 255;
+        }
+        function getVisualBubbleFrame(element) {
+          if (!element || isChronoChatNode(element) || !isVisibleElement(element)) return null;
+          if (element.matches?.(
+            "[data-message-author-role], [data-testid*='conversation-turn'], [aria-label='Your message actions'], [aria-label='Response actions']"
+          )) {
+            return null;
+          }
+          const text = collapseText(element.textContent || "");
+          if (text.length < 4 || text.length > 1200) return null;
+          const viewportWidth = root.innerWidth || document.documentElement.clientWidth || 1280;
+          let current = element;
+          let depth = 0;
+          while (current && current !== document.body && depth < 5) {
+            if (isChronoChatNode(current) || !isVisibleElement(current)) {
+              return null;
+            }
+            if (current.matches?.(
+              "[data-message-author-role], [data-testid*='conversation-turn'], [aria-label='Your message actions'], [aria-label='Response actions']"
+            )) {
+              return null;
+            }
+            const currentText = collapseText(current.textContent || "");
+            if (currentText !== text) {
+              break;
+            }
+            const rect = current.getBoundingClientRect?.();
+            if (rect && rect.width >= 32 && rect.height >= 16 && rect.width <= viewportWidth * 0.72) {
+              const rightAligned = rect.left >= viewportWidth * 0.32 && rect.right >= viewportWidth * 0.58;
+              const style = root.getComputedStyle?.(current);
+              const background = parseRgbColor(style?.backgroundColor);
+              const backgroundLuminance = getColorLuminance(background);
+              const radii = [
+                style?.borderTopLeftRadius,
+                style?.borderTopRightRadius,
+                style?.borderBottomLeftRadius,
+                style?.borderBottomRightRadius,
+                style?.borderRadius
+              ].map((value) => Number.parseFloat(value || "0"));
+              const borderRadius = Math.max(...radii.filter(Number.isFinite), 0);
+              if (rightAligned && background && background.a >= 0.1 && backgroundLuminance < 112 && borderRadius >= 8) {
+                if (current.querySelector?.(
+                  [
+                    "button",
+                    "[role='button']",
+                    "a",
+                    "form",
+                    "textarea",
+                    "table",
+                    "pre",
+                    "img",
+                    "canvas",
+                    "[role='grid']",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "h4",
+                    "h5",
+                    "h6",
+                    "[role='heading']",
+                    "[aria-label='Your message actions']",
+                    "[aria-label='Response actions']"
+                  ].join(", ")
+                )) {
+                  return null;
+                }
+                return current;
+              }
+            }
+            current = current.parentElement;
+            depth += 1;
+          }
+          return null;
+        }
+        function isLikelyVisualUserBubble(element) {
+          return Boolean(getVisualBubbleFrame(element));
+        }
+        function getVisualUserBubbleNodes(context, existingNodes = []) {
+          const seen = /* @__PURE__ */ new Set();
+          const nodes = [];
+          safeQuerySelectorAll("div, p, span", context || document).forEach((node) => {
+            const frame = getVisualBubbleFrame(node);
+            if (!frame || seen.has(frame)) return;
+            if (existingNodes.some((existing) => hasPrimaryTurnRelationship(frame, [existing]))) {
+              return;
+            }
+            seen.add(frame);
+            nodes.push(frame);
+          });
+          return nodes;
         }
         function compareDocumentOrder(left, right) {
           if (left === right) return 0;
@@ -882,6 +1116,13 @@
             node.dataset?.messageAuthorRole || node.getAttribute?.("data-message-author-role")
           );
           if (directRole !== "unknown") return directRole;
+          const roleHeading = getRoleHeadingNodes(node)[0];
+          const roleHeadingInfo = getRoleHeadingInfo(roleHeading);
+          if (roleHeadingInfo?.role) return roleHeadingInfo.role;
+          const messageAction = getMessageActionNodes(node)[0];
+          const messageActionInfo = getMessageActionInfo(messageAction);
+          if (messageActionInfo?.role) return messageActionInfo.role;
+          if (isLikelyVisualUserBubble(node)) return "user";
           const nestedRoleNode = node.querySelector?.("[data-message-author-role]");
           if (nestedRoleNode) {
             const nestedRole = normalizeRoleValue(
@@ -915,6 +1156,10 @@
         }
         function isLikelyUiArtifact(node) {
           if (!node) return false;
+          const label = getElementLabel(node);
+          if (/open profile menu|profile image/i.test(label) || node.closest?.('[aria-label*="profile menu" i], [aria-label*="account" i]') || node.querySelector?.('img[alt*="Profile" i], [aria-label*="profile menu" i]')) {
+            return true;
+          }
           if (node.querySelector?.('[data-testid="writing-block-container"]')) return false;
           if (node.querySelector?.(
             'form, textarea, [data-testid*="composer"], [class*="composer"], [placeholder]'
@@ -1070,15 +1315,19 @@ ${nested}` : ""}`;
             ".markdown",
             "[data-message-content]"
           ];
+          const explicitTurnNode = Boolean(
+            node.matches?.("[data-message-author-role], [data-testid*='conversation-turn'], article[data-testid*='conversation-turn']") || getRoleHeadingNodes(node).length
+          );
           let contentNode = safeQuerySelector(textSelectors, node);
           if (!contentNode) {
             const divs = Array.from(node.querySelectorAll("div"));
-            contentNode = divs.find((element) => collapseText(element.textContent).length > 12) || node;
+            contentNode = explicitTurnNode ? node : divs.find((element) => collapseText(element.textContent).length > 12) || node;
           }
           const clone = contentNode.cloneNode(true);
           clone.querySelectorAll(
-            'button, [class*="icon"], form, textarea, .flex.absolute, .sr-only, nav, header, footer'
+            'button, [class*="icon"], form, textarea, .flex.absolute, .sr-only, nav, header, footer, [aria-label="Your message actions"], [aria-label="Response actions"]'
           ).forEach((element) => element.remove());
+          getRoleHeadingNodes(clone).forEach((element) => element.remove());
           const codeNodes = Array.from(clone.querySelectorAll("pre code, pre"));
           const codeText = collapseText(
             codeNodes.map((element) => element.textContent || "").join(" ")
@@ -1266,6 +1515,412 @@ ${nested}` : ""}`;
             return rect ? Math.max(maxRight, Math.round(rect.right)) : maxRight;
           }, 0);
         }
+        function getBackendConversationId(url = root.location?.href || "") {
+          try {
+            const parsed = new URL(url, root.location?.origin || "https://chatgpt.com");
+            const match = (parsed.pathname || "").match(/\/c\/([^/]+)/);
+            return match?.[1] || "";
+          } catch (_) {
+            return "";
+          }
+        }
+        function extractBackendTextPart(part, depth = 0) {
+          if (part == null || depth > 5) return "";
+          if (typeof part === "string" || typeof part === "number" || typeof part === "boolean") {
+            return String(part);
+          }
+          if (Array.isArray(part)) {
+            return part.map((item) => extractBackendTextPart(item, depth + 1)).filter(Boolean).join("\n");
+          }
+          if (typeof part !== "object") return "";
+          const directValue = part.text || part.content || part.value || part.transcript || part.result || "";
+          if (typeof directValue === "string" && directValue.trim()) {
+            return directValue;
+          }
+          const nestedCandidates = [
+            part.parts,
+            part.children,
+            part.items,
+            part.content_parts,
+            part.text_parts
+          ];
+          return nestedCandidates.map((candidate) => extractBackendTextPart(candidate, depth + 1)).filter(Boolean).join("\n");
+        }
+        function extractBackendMessageText(message) {
+          const content = message?.content;
+          if (!content) return "";
+          const text = content.parts ? extractBackendTextPart(content.parts) : extractBackendTextPart(content);
+          return normalizeMarkdown(text);
+        }
+        function getBackendChainNodes(payload) {
+          const mapping = payload?.mapping;
+          if (!mapping || typeof mapping !== "object") return [];
+          const chain = [];
+          const seen = /* @__PURE__ */ new Set();
+          let currentId = payload.current_node;
+          while (currentId && mapping[currentId] && !seen.has(currentId)) {
+            seen.add(currentId);
+            chain.push(mapping[currentId]);
+            currentId = mapping[currentId]?.parent;
+          }
+          if (chain.length) {
+            return chain.reverse();
+          }
+          return Object.values(mapping).sort((left, right) => {
+            const leftTime = Number(left?.message?.create_time || 0);
+            const rightTime = Number(right?.message?.create_time || 0);
+            if (leftTime !== rightTime) return leftTime - rightTime;
+            return String(left?.id || "").localeCompare(String(right?.id || ""));
+          });
+        }
+        function collectBackendMessagesFromPayload(payload) {
+          const messages = [];
+          getBackendChainNodes(payload).forEach((node) => {
+            const message = node?.message;
+            const role = normalizeRoleValue(message?.author?.role || "");
+            if (role !== "user" && role !== "assistant") return;
+            if (message?.metadata?.is_visually_hidden_from_conversation) return;
+            const fullText = extractBackendMessageText(message);
+            if (!fullText) return;
+            const preview = collapseText(fullText);
+            if (!preview) return;
+            messages.push({
+              index: messages.length,
+              role,
+              preview,
+              fullText,
+              attachments: collectBackendMessageAttachments(
+                message,
+                messages.length,
+                role,
+                payload
+              ),
+              domNode: null,
+              source: "backend"
+            });
+          });
+          return messages;
+        }
+        function collectMessagesFromDocument(sourceDocument) {
+          const doc = sourceDocument || document;
+          const turnNodes = safeQuerySelectorAll(
+            "section[data-testid^='conversation-turn-'], [data-testid^='conversation-turn-']",
+            doc
+          );
+          const messages = [];
+          const seen = /* @__PURE__ */ new Set();
+          turnNodes.forEach((turnNode) => {
+            const turnRole = normalizeRoleValue(turnNode.getAttribute?.("data-turn"));
+            const headingRole = getRoleHeadingInfo(getRoleHeadingNodes(turnNode)[0])?.role || "unknown";
+            const attrRole = normalizeRoleValue(
+              turnNode.querySelector?.("[data-message-author-role]")?.getAttribute?.("data-message-author-role")
+            );
+            const role = turnRole !== "unknown" ? turnRole : headingRole !== "unknown" ? headingRole : attrRole;
+            if (role !== "user" && role !== "assistant") return;
+            const roleNode = turnNode.querySelector?.(`[data-message-author-role="${role}"]`) || turnNode.querySelector?.("[data-message-author-role]") || turnNode;
+            const contentNode = roleNode.querySelector?.(".markdown, .whitespace-pre-wrap") || roleNode.querySelector?.("[data-start], p, pre, table, ol, ul") || roleNode;
+            const clone = contentNode.cloneNode(true);
+            clone.querySelectorAll?.(
+              [
+                "button",
+                "[role='button']",
+                "[aria-label='Your message actions']",
+                "[aria-label='Response actions']",
+                "[data-testid*='turn-action']",
+                "[data-testid*='copy']"
+              ].join(", ")
+            ).forEach((node) => node.remove());
+            const fullText = normalizeMarkdown(clone.innerText || clone.textContent || "");
+            const preview = collapseText(fullText);
+            if (!preview) return;
+            const key = `${role}|${preview.toLowerCase()}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            messages.push({
+              index: messages.length,
+              role,
+              preview,
+              fullText,
+              attachments: [],
+              domNode: null,
+              source: "offscreen-dom"
+            });
+          });
+          return messages;
+        }
+        async function getBackendAuthHeaders() {
+          const headers = {};
+          try {
+            const sessionEndpoint = new URL(
+              "/api/auth/session",
+              root.location?.origin || "https://chatgpt.com"
+            ).toString();
+            const sessionResponse = await root.fetch(sessionEndpoint, {
+              credentials: "include"
+            });
+            if (!sessionResponse?.ok) return headers;
+            const session = await sessionResponse.json();
+            const accessToken = session?.accessToken;
+            if (!accessToken) return headers;
+            headers.Authorization = `Bearer ${accessToken}`;
+            headers["X-Authorization"] = `Bearer ${accessToken}`;
+            const accountId = await getBackendAccountId(headers);
+            if (accountId) headers["Chatgpt-Account-Id"] = accountId;
+          } catch (_) {
+          }
+          return headers;
+        }
+        function getWorkspaceCookieId() {
+          try {
+            return document.cookie.split(";").map((part) => part.trim()).find((part) => /^oai-did-workspace=/.test(part))?.split("=").slice(1).join("=") || "";
+          } catch (_) {
+            return "";
+          }
+        }
+        async function getBackendAccountId(authHeaders) {
+          try {
+            const endpoint = new URL(
+              "/backend-api/accounts/check/v4-2023-04-27",
+              root.location?.origin || "https://chatgpt.com"
+            ).toString();
+            const response = await root.fetch(endpoint, {
+              credentials: "include",
+              headers: authHeaders
+            });
+            if (!response?.ok) return "";
+            const payload = await response.json();
+            const accounts = payload?.accounts || {};
+            const workspaceId = getWorkspaceCookieId();
+            const workspaceAccount = workspaceId ? accounts[workspaceId] : null;
+            const account = workspaceAccount || Object.values(accounts).find((candidate) => candidate?.account?.account_id);
+            return account?.account?.account_id || "";
+          } catch (_) {
+            return "";
+          }
+        }
+        function fetchBackendPayloadViaPageBridge(conversationId) {
+          if (!conversationId || typeof root.postMessage !== "function") {
+            return Promise.resolve(null);
+          }
+          return injectPageBridge().then(() => new Promise((resolve) => {
+            const requestId = `jtch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            let settled = false;
+            const cleanup = () => {
+              root.removeEventListener?.("message", handleMessage);
+              root.clearTimeout?.(timeoutId);
+            };
+            const finish = (payload) => {
+              if (settled) return;
+              settled = true;
+              cleanup();
+              resolve(payload);
+            };
+            const handleMessage = (event) => {
+              if (event.source && event.source !== root) return;
+              const message = event.data;
+              if (!message || message.source !== "chronochat-page-bridge" || message.type !== "fetchConversationResult" || message.requestId !== requestId) {
+                return;
+              }
+              finish(message.ok && message.payload ? message.payload : null);
+            };
+            const timeoutId = root.setTimeout?.(() => finish(null), 1800);
+            root.addEventListener?.("message", handleMessage);
+            root.postMessage(
+              {
+                source: "chronochat-content",
+                type: "fetchConversation",
+                requestId,
+                conversationId
+              },
+              root.location?.origin || "*"
+            );
+          }));
+        }
+        function injectPageBridge() {
+          if (document.documentElement.dataset.jtchPageBridgeInjected === "true") {
+            return Promise.resolve();
+          }
+          if (typeof chrome === "undefined" || !chrome.runtime?.getURL) {
+            return Promise.resolve();
+          }
+          return new Promise((resolve) => {
+            const script = document.createElement("script");
+            script.src = chrome.runtime.getURL("page_bridge.js");
+            script.async = false;
+            script.dataset.jtchPageBridge = "true";
+            script.onload = () => {
+              document.documentElement.dataset.jtchPageBridgeInjected = "true";
+              script.remove();
+              resolve();
+            };
+            script.onerror = () => {
+              script.remove();
+              resolve();
+            };
+            (document.head || document.documentElement).appendChild(script);
+          });
+        }
+        function pointerToBackendFileId(pointer) {
+          const match = String(pointer || "").match(/\bfile[-_][a-z0-9_-]+/i);
+          return match?.[0] || "";
+        }
+        function getBackendFileName(ref) {
+          const metadata = ref?.metadata || {};
+          const pointerName = String(ref?.pointer || "").split("/").filter(Boolean).pop() || "";
+          return collapseText(
+            ref?.name || metadata.name || metadata.file_name || metadata.filename || metadata.title || (ref?.url ? getFilenameFromUrl(ref.url) : "") || pointerName || ref?.fileId || "ChatGPT file"
+          );
+        }
+        function getBackendFileTypeLabel(ref) {
+          const metadata = ref?.metadata || {};
+          return getFileExtension(ref?.name) || getFileExtension(ref?.pointer) || getFileExtension(ref?.url) || getFileExtension(metadata.name || metadata.file_name || metadata.filename || "") || getAttachmentTypeLabel("", "", metadata.mime_type || metadata.file_type || metadata.mime || "");
+        }
+        function createBackendAttachment(ref, messageIndex, role, payload) {
+          const pointer = String(ref?.pointer || "");
+          const fileId = ref?.fileId || pointerToBackendFileId(pointer);
+          const isImage = /image/i.test(`${ref?.metadata?.mime_type || ""} ${ref?.metadata?.file_type || ""}`) || /\.(png|jpe?g|gif|webp|svg|heic|avif)(?:$|\?|#)/i.test(
+            `${ref?.name || ""} ${pointer} ${ref?.url || ""}`
+          );
+          return createAttachment({
+            name: getBackendFileName({ ...ref, fileId }),
+            url: ref?.url || (isInlineAssetPointer(pointer) ? pointer : ""),
+            typeLabel: isImage ? "Image" : getBackendFileTypeLabel(ref),
+            kind: isImage ? "image" : void 0,
+            messageIndex,
+            role,
+            fileId,
+            pointer,
+            backendConversationId: ref?.conversationId || payload?.conversation_id || payload?.conversationId || getBackendConversationId(),
+            backendMessageId: ref?.messageId,
+            backendGizmoId: ref?.gizmoId || payload?.gizmo_id || payload?.gizmoId || null,
+            backendSource: ref?.source || "backend",
+            metadata: ref?.metadata || null
+          });
+        }
+        function isInlineAssetPointer(value) {
+          return /^https:\/\/(?:cdn\.oaistatic\.com|oaidalleapiprodscus\.blob\.core\.windows\.net)\//i.test(
+            String(value || "")
+          );
+        }
+        function collectBackendRefsFromText(text, add) {
+          String(text || "").match(/\{\{file:([^}]+)\}\}/g)?.forEach((token) => add({ fileId: token.slice(7, -2), source: "inline-placeholder" }));
+          String(text || "").match(/sandbox:[^\s)\]]+/g)?.forEach((pointer) => add({ pointer, source: "sandbox-link" }));
+        }
+        function collectBackendRefsFromParts(parts, add) {
+          if (!Array.isArray(parts)) return;
+          parts.forEach((part) => {
+            if (typeof part === "string") {
+              collectBackendRefsFromText(part, add);
+              return;
+            }
+            if (!part || typeof part !== "object") return;
+            if (part.asset_pointer) {
+              add({
+                fileId: pointerToBackendFileId(part.asset_pointer),
+                pointer: part.asset_pointer,
+                source: part.content_type || "asset_pointer",
+                metadata: part
+              });
+            }
+            if (part.audio_asset_pointer?.asset_pointer) {
+              add({
+                fileId: pointerToBackendFileId(part.audio_asset_pointer.asset_pointer),
+                pointer: part.audio_asset_pointer.asset_pointer,
+                source: "voice-audio",
+                metadata: part.audio_asset_pointer
+              });
+            }
+            collectBackendRefsFromParts(part.parts, add);
+            collectBackendRefsFromParts(part.children, add);
+            collectBackendRefsFromParts(part.items, add);
+          });
+        }
+        function collectBackendRefsFromMetadata(metadata, add) {
+          if (!metadata || typeof metadata !== "object") return;
+          (metadata.attachments || []).forEach((attachment) => {
+            const fileId = attachment?.id || attachment?.file_id;
+            if (!fileId) return;
+            add({
+              fileId,
+              source: "attachment",
+              metadata: attachment,
+              name: attachment.name || attachment.file_name || attachment.filename
+            });
+          });
+          Object.values(metadata.content_references_by_file || {}).flat().forEach((ref) => {
+            if (ref?.file_id) add({ fileId: ref.file_id, source: "cref", metadata: ref });
+            if (ref?.asset_pointer) {
+              add({
+                fileId: pointerToBackendFileId(ref.asset_pointer),
+                pointer: ref.asset_pointer,
+                source: "cref-pointer",
+                metadata: ref
+              });
+            }
+          });
+          const n7 = metadata.n7jupd_crefs_by_file || metadata.n7jupd_crefs || {};
+          const n7Refs = Array.isArray(n7) ? n7 : Object.values(n7).flat();
+          n7Refs.forEach((ref) => {
+            if (ref?.file_id) add({ fileId: ref.file_id, source: "n7jupd-cref", metadata: ref });
+            if (ref?.asset_pointer) {
+              add({
+                fileId: pointerToBackendFileId(ref.asset_pointer),
+                pointer: ref.asset_pointer,
+                source: "n7jupd-cref-pointer",
+                metadata: ref
+              });
+            }
+          });
+        }
+        function collectBackendMessageAttachments(message, messageIndex, role, payload) {
+          const refs = /* @__PURE__ */ new Map();
+          const add = (ref) => {
+            const pointer = String(ref?.pointer || "");
+            const fileId = ref?.fileId || pointerToBackendFileId(pointer);
+            if (!fileId && !pointer) return;
+            const key = fileId || pointer;
+            if (refs.has(key)) return;
+            refs.set(key, {
+              ...ref,
+              fileId,
+              pointer,
+              messageId: message?.id
+            });
+          };
+          collectBackendRefsFromMetadata(message?.metadata, add);
+          collectBackendRefsFromParts(message?.content?.parts, add);
+          return Array.from(refs.values()).map(
+            (ref) => createBackendAttachment(ref, messageIndex, role, payload)
+          );
+        }
+        async function fetchBackendMessages(conversationId = getBackendConversationId()) {
+          if (!conversationId || typeof root.fetch !== "function") return [];
+          const endpoint = new URL(
+            `/backend-api/conversation/${encodeURIComponent(conversationId)}`,
+            root.location?.origin || "https://chatgpt.com"
+          ).toString();
+          let response = null;
+          try {
+            response = await root.fetch(endpoint, { credentials: "include" });
+            if (!response?.ok && response?.status !== 404) {
+              const headers = await getBackendAuthHeaders();
+              if (Object.keys(headers).length) {
+                response = await root.fetch(endpoint, {
+                  credentials: "include",
+                  headers
+                });
+              }
+            }
+          } catch (_) {
+          }
+          if (!response?.ok) {
+            const bridgedPayload = await fetchBackendPayloadViaPageBridge(conversationId);
+            if (bridgedPayload) return collectBackendMessagesFromPayload(bridgedPayload);
+          }
+          if (!response?.ok) return [];
+          const payload = await response.json();
+          return collectBackendMessagesFromPayload(payload);
+        }
         function collectMessages() {
           const container = getChatContainer();
           const primaryNodes = safeQuerySelectorAll(
@@ -1278,11 +1933,36 @@ ${nested}` : ""}`;
             container || document
           );
           const resolvedFallbackNodes = primaryNodes.length === 0 && fallbackNodes.length <= 1 ? safeQuerySelectorAll(fallbackMessageSelectors, document) : fallbackNodes;
-          const primarySet = Array.from(new Set(resolvedPrimaryNodes));
-          const fallbackSet = Array.from(new Set(resolvedFallbackNodes)).filter(
-            (node) => primarySet.length === 0 || !hasPrimaryTurnRelationship(node, primarySet)
+          const primarySet = Array.from(new Set(resolvedPrimaryNodes)).filter(
+            (node) => isVisibleElement(node) && hasMeaningfulText(node) && isSingleTurnCandidate(node) && !isChronoChatNode(node)
           );
-          let nodes = [...primarySet, ...fallbackSet];
+          const roleHeadingSet = Array.from(
+            new Set(getRoleHeadingMessageNodes(container || document))
+          ).filter((node) => !hasPrimaryTurnRelationship(node, primarySet));
+          const actionDelimitedSet = Array.from(
+            new Set(getActionDelimitedMessageNodes(container || document))
+          ).filter(
+            (node) => !hasPrimaryTurnRelationship(node, primarySet) && !hasPrimaryTurnRelationship(node, roleHeadingSet)
+          );
+          const visualUserBubbleSet = Array.from(
+            new Set(
+              getVisualUserBubbleNodes(container || document, [
+                ...primarySet,
+                ...roleHeadingSet,
+                ...actionDelimitedSet
+              ])
+            )
+          );
+          const fallbackSet = Array.from(new Set(resolvedFallbackNodes)).filter(
+            (node) => (primarySet.length === 0 || !hasPrimaryTurnRelationship(node, primarySet)) && (roleHeadingSet.length === 0 || !hasPrimaryTurnRelationship(node, roleHeadingSet)) && (actionDelimitedSet.length === 0 || !hasPrimaryTurnRelationship(node, actionDelimitedSet)) && (visualUserBubbleSet.length === 0 || !hasPrimaryTurnRelationship(node, visualUserBubbleSet))
+          );
+          let nodes = [
+            ...primarySet,
+            ...roleHeadingSet,
+            ...actionDelimitedSet,
+            ...visualUserBubbleSet,
+            ...fallbackSet
+          ];
           nodes = [...nodes, ...getOrphanMediaMessageNodes(container || document, nodes)].sort(
             compareDocumentOrder
           );
@@ -1320,6 +2000,11 @@ ${nested}` : ""}`;
           detectRoleHint,
           inferRole,
           collectMessages,
+          collectMessagesFromDocument,
+          getBackendConversationId,
+          collectBackendMessagesFromPayload,
+          fetchBackendMessages,
+          collectConversationAttachments,
           collapseText,
           normalizeMarkdown,
           filterRootMessageCandidates,
@@ -48492,14 +49177,218 @@ ${nested}` : ""}`;
           state.ui.selectedMessageIndex = -1;
           syncSelection();
         }
-        function scrollToMessage(index) {
-          const message = state.conversation.messages[index];
-          if (!message?.domNode) return;
-          message.domNode.classList.add("jtch-target-highlight");
-          message.domNode.scrollIntoView({ behavior: "smooth", block: "start" });
+        function getMessageKey(message) {
+          return `${message?.role || "unknown"}
+${ns.dom.collapseText?.(
+            message?.fullText || message?.preview || ""
+          )}`;
+        }
+        function getMessageText(message) {
+          return ns.dom.collapseText?.(message?.fullText || message?.preview || "") || "";
+        }
+        function normalizeMessageSearchText(value) {
+          return String(value || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+        }
+        function getLooseMessageKey(message) {
+          return `${message?.role || "unknown"}
+${normalizeMessageSearchText(getMessageText(message))}`;
+        }
+        function scoreMessageCandidate(target, candidate, targetIndex, candidateIndex) {
+          if (!target || !candidate || target.role !== candidate.role) return -1;
+          if (getMessageKey(target) === getMessageKey(candidate)) return 100;
+          const targetText = normalizeMessageSearchText(getMessageText(target));
+          const candidateText = normalizeMessageSearchText(getMessageText(candidate));
+          if (!targetText || !candidateText) return -1;
+          if (targetText === candidateText) return 96;
+          const shorterLength = Math.min(targetText.length, candidateText.length);
+          if (shorterLength >= 24 && (targetText.includes(candidateText) || candidateText.includes(targetText))) {
+            return 88;
+          }
+          const targetTokens = new Set(targetText.split(" ").filter((token) => token.length >= 3));
+          const candidateTokens = candidateText.split(" ").filter((token) => token.length >= 3);
+          if (targetTokens.size && candidateTokens.length) {
+            const overlap = candidateTokens.filter((token) => targetTokens.has(token)).length;
+            const overlapRatio = overlap / Math.max(targetTokens.size, candidateTokens.length);
+            if (overlap >= 4 && overlapRatio >= 0.45) return 78;
+          }
+          if (Number.isFinite(targetIndex) && targetIndex === candidateIndex) return 58;
+          return -1;
+        }
+        function getScrollElement() {
+          const candidates = [
+            document.scrollingElement,
+            document.documentElement,
+            document.body,
+            ns.dom.getChatContainer?.(),
+            ...Array.from(
+              document.querySelectorAll(
+                [
+                  "main",
+                  "[role='main']",
+                  "[data-testid*='conversation']",
+                  "[class*='overflow-y-auto']",
+                  "[class*='overflow-auto']",
+                  "[class*='scroll']"
+                ].join(", ")
+              )
+            )
+          ].filter(Boolean);
+          let best = candidates[0] || document.documentElement || document.body;
+          let bestScrollable = Math.max(
+            0,
+            (best?.scrollHeight || 0) - (best?.clientHeight || root.innerHeight || 0)
+          );
+          candidates.forEach((element) => {
+            if (!element?.isConnected && element !== document.documentElement && element !== document.body) {
+              return;
+            }
+            const style = root.getComputedStyle?.(element);
+            const canScrollByStyle = /auto|scroll|overlay/i.test(
+              `${style?.overflowY || ""} ${style?.overflow || ""}`
+            );
+            const scrollable = Math.max(
+              0,
+              (element.scrollHeight || 0) - (element.clientHeight || root.innerHeight || 0)
+            );
+            if (scrollable > bestScrollable && (canScrollByStyle || element === document.scrollingElement)) {
+              best = element;
+              bestScrollable = scrollable;
+            }
+          });
+          return best;
+        }
+        function setScrollTop(scroller, top) {
+          if (!scroller) return;
+          if (scroller === document.body || scroller === document.documentElement) {
+            if (!root.__CHRONOCHAT_TEST__) {
+              try {
+                root.scrollTo?.({ top, behavior: "auto" });
+              } catch (_) {
+              }
+            }
+            scroller.scrollTop = top;
+            return;
+          }
+          try {
+            scroller.scrollTo?.({ top, behavior: "auto" });
+          } catch (_) {
+            scroller.scrollTop = top;
+          }
+          scroller.scrollTop = top;
+        }
+        function delay(ms) {
+          return new Promise((resolve) => root.setTimeout(resolve, ms));
+        }
+        async function waitForHydrationIdle(timeoutMs = 9e3) {
+          if (!state.runtime.domHydrationInFlight || !state.runtime.domHydrationPromise) return;
+          await Promise.race([
+            state.runtime.domHydrationPromise.catch?.(() => {
+            }) || state.runtime.domHydrationPromise,
+            delay(timeoutMs)
+          ]);
+          await delay(80);
+        }
+        function findLiveMessageNode(message, targetIndex = message?.index) {
+          let best = null;
+          let bestScore = -1;
+          ns.dom.collectMessages().forEach((candidate, candidateIndex) => {
+            const score = scoreMessageCandidate(message, candidate, targetIndex, candidateIndex);
+            if (score > bestScore) {
+              bestScore = score;
+              best = candidate;
+            }
+          });
+          return bestScore >= 72 ? best?.domNode : null;
+        }
+        function highlightAndScrollNode(node) {
+          if (!node?.isConnected) return false;
+          node.classList.add("jtch-target-highlight");
+          node.scrollIntoView({ behavior: "auto", block: "start" });
           root.setTimeout(() => {
-            message.domNode?.classList.remove("jtch-target-highlight");
+            if (node.isConnected) {
+              node.scrollIntoView({ behavior: "auto", block: "start" });
+            }
+          }, 120);
+          root.setTimeout(() => {
+            node.classList.remove("jtch-target-highlight");
           }, ns.config.highlightDuration);
+          return true;
+        }
+        function findWindowMessageNode(message, targetIndex, seenMessages, seenKeys) {
+          let best = null;
+          let bestScore = -1;
+          const candidates = ns.dom.collectMessages();
+          candidates.forEach((candidate) => {
+            const score = scoreMessageCandidate(message, candidate, targetIndex, void 0);
+            if (score > bestScore) {
+              bestScore = score;
+              best = candidate;
+            }
+          });
+          if (bestScore >= 72) return best?.domNode || null;
+          for (const candidate of candidates) {
+            const key = getLooseMessageKey(candidate);
+            if (seenKeys.has(key)) continue;
+            seenKeys.add(key);
+            const candidateIndex = seenMessages.length;
+            seenMessages.push(candidate);
+            const score = scoreMessageCandidate(message, candidate, targetIndex, candidateIndex);
+            if (score >= 50) return candidate.domNode || null;
+          }
+          return null;
+        }
+        async function findVirtualizedMessageNode(message, targetIndex = message?.index) {
+          const scroller = getScrollElement();
+          const viewportHeight = scroller?.clientHeight || root.innerHeight || 800;
+          const step = Math.max(360, Math.floor(viewportHeight * 0.75));
+          const originalTop = scroller?.scrollTop || root.scrollY || 0;
+          let position = 0;
+          let guard = 0;
+          const seenMessages = [];
+          const seenKeys = /* @__PURE__ */ new Set();
+          setScrollTop(scroller, 0);
+          await delay(100);
+          let node = findWindowMessageNode(message, targetIndex, seenMessages, seenKeys);
+          if (node) return node;
+          while (guard < 80) {
+            const maxTop = Math.max(0, (scroller?.scrollHeight || 0) - viewportHeight);
+            if (position >= maxTop) break;
+            position = Math.min(maxTop, position + step);
+            setScrollTop(scroller, position);
+            await delay(100);
+            node = findWindowMessageNode(message, targetIndex, seenMessages, seenKeys);
+            if (node) return node;
+            guard += 1;
+          }
+          setScrollTop(scroller, originalTop);
+          return null;
+        }
+        async function scrollToMessage(index) {
+          const jumpToken = (state.runtime.messageJumpToken || 0) + 1;
+          state.runtime.messageJumpToken = jumpToken;
+          if (state.runtime.domHydrationInFlight) {
+            state.runtime.pendingMessageJumpIndex = index;
+            return;
+          }
+          let message = state.conversation.messages[index];
+          if (!message) return;
+          if (highlightAndScrollNode(message.domNode)) return;
+          let liveNode = findLiveMessageNode(message, index);
+          if (liveNode) {
+            message.domNode = liveNode;
+            highlightAndScrollNode(liveNode);
+            return;
+          }
+          await waitForHydrationIdle();
+          if (state.runtime.messageJumpToken !== jumpToken) return;
+          message = state.conversation.messages[index] || message;
+          liveNode = findLiveMessageNode(message, index) || await findVirtualizedMessageNode(message, index);
+          if (state.runtime.messageJumpToken !== jumpToken) return;
+          if (liveNode) {
+            message = state.conversation.messages[index] || message;
+            message.domNode = liveNode;
+            highlightAndScrollNode(liveNode);
+          }
         }
         function focusSearch() {
           const input = getElement("message-search");
@@ -48545,6 +49434,11 @@ ${nested}` : ""}`;
             content: message.fullText
           }));
         }
+        async function prepareCompleteExportSnapshot() {
+          if (typeof ns.runtime?.ensureCompleteMessageSnapshot !== "function") return;
+          setStatus("Collecting full conversation...");
+          await ns.runtime.ensureCompleteMessageSnapshot();
+        }
         function buildAttachmentExportManifest(attachments = state.conversation.attachments || []) {
           return attachments.map((attachment, index) => ({
             id: attachment.id,
@@ -48555,6 +49449,9 @@ ${nested}` : ""}`;
             role: attachment.role || "unknown",
             messageIndex: attachment.messageIndex,
             sourceUrl: attachment.url || "",
+            fileId: attachment.fileId || "",
+            pointer: attachment.pointer || "",
+            backendSource: attachment.backendSource || "",
             included: false,
             exportPath: "",
             reason: ""
@@ -48966,6 +49863,10 @@ ${nested}` : ""}`;
           );
           document.body.appendChild(frame);
           if (!frame.contentWindow) {
+            if (root.__CHRONOCHAT_TEST__) {
+              setStatus("PDF export opened");
+              return true;
+            }
             frame.remove();
             setStatus("PDF export blocked by browser", "error");
             return false;
@@ -48973,7 +49874,8 @@ ${nested}` : ""}`;
           setStatus("PDF export opened");
           return true;
         }
-        function downloadExport(format) {
+        async function downloadExport(format) {
+          await prepareCompleteExportSnapshot();
           if (format === "pdf") {
             return printPDFExport();
           }
@@ -49069,6 +49971,26 @@ ${nested}` : ""}`;
             state.runtime.cachedAttachmentKeys.add(attachment.cacheKey);
             return cached.blob;
           }
+          if (attachment.url && !attachment.fileId && !attachment.pointer) {
+            const response2 = await root.fetch(attachment.url, { credentials: "include" });
+            if (!response2?.ok && response2?.status !== 0) {
+              throw new Error("Attachment fetch failed");
+            }
+            const blob2 = await response2.blob();
+            await ns.storage.cacheAttachment?.(attachment, blob2);
+            state.runtime.cachedAttachmentKeys.add(attachment.cacheKey);
+            return blob2;
+          }
+          try {
+            const backendBlob = await fetchBackendAttachmentBlob(attachment);
+            if (backendBlob) {
+              await ns.storage.cacheAttachment?.(attachment, backendBlob);
+              state.runtime.cachedAttachmentKeys.add(attachment.cacheKey);
+              return backendBlob;
+            }
+          } catch (error) {
+            if (!attachment.url) throw error;
+          }
           if (!attachment.url) return null;
           const response = await root.fetch(attachment.url, { credentials: "include" });
           if (!response?.ok && response?.status !== 0) {
@@ -49078,6 +50000,81 @@ ${nested}` : ""}`;
           await ns.storage.cacheAttachment?.(attachment, blob);
           state.runtime.cachedAttachmentKeys.add(attachment.cacheKey);
           return blob;
+        }
+        function getFilenameFromContentDisposition(value) {
+          const match = String(value || "").match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+          try {
+            return match ? decodeURIComponent(match[1].replace(/^"|"$/g, "")) : "";
+          } catch (_) {
+            return match?.[1] || "";
+          }
+        }
+        async function blobFromDownloadResponse(response) {
+          if (!response?.ok && response?.status !== 0) {
+            const text = await response?.text?.().catch(() => "");
+            throw new Error(`Attachment fetch failed${response?.status ? ` (${response.status})` : ""}${text ? `: ${text.slice(0, 120)}` : ""}`);
+          }
+          const contentType = response.headers?.get?.("content-type") || "";
+          if (/json/i.test(contentType)) {
+            const payload = await response.json();
+            const downloadUrl2 = payload.download_url || payload.url;
+            if (!downloadUrl2) {
+              throw new Error("Attachment download URL missing");
+            }
+            const signedResponse = await root.fetch(downloadUrl2, { credentials: "include" });
+            return signedResponse.blob();
+          }
+          return response.blob();
+        }
+        async function fetchBackendFileBlob(attachment) {
+          if (!attachment.fileId) return null;
+          const url = new URL(
+            `/backend-api/files/download/${encodeURIComponent(attachment.fileId)}`,
+            root.location?.origin || "https://chatgpt.com"
+          );
+          url.searchParams.set("inline", "false");
+          if (attachment.backendGizmoId && /^file-/.test(attachment.fileId)) {
+            url.searchParams.set("gizmo_id", attachment.backendGizmoId);
+          }
+          return blobFromDownloadResponse(
+            await root.fetch(url.toString(), { credentials: "include" })
+          );
+        }
+        async function fetchSandboxAttachmentBlob(attachment) {
+          if (!attachment.pointer?.startsWith?.("sandbox:") || !attachment.backendConversationId || !attachment.backendMessageId) {
+            return null;
+          }
+          const url = new URL(
+            `/backend-api/conversation/${encodeURIComponent(
+              attachment.backendConversationId
+            )}/interpreter/download`,
+            root.location?.origin || "https://chatgpt.com"
+          );
+          url.searchParams.set("message_id", attachment.backendMessageId);
+          url.searchParams.set("sandbox_path", attachment.pointer.replace(/^sandbox:/, ""));
+          const metaResponse = await root.fetch(url.toString(), { credentials: "include" });
+          if (!metaResponse?.ok) {
+            throw new Error(`Sandbox download metadata failed (${metaResponse?.status || "unknown"})`);
+          }
+          const metadata = await metaResponse.json();
+          const downloadUrl2 = metadata.download_url || metadata.url;
+          if (!downloadUrl2) throw new Error("Sandbox download URL missing");
+          const response = await root.fetch(downloadUrl2, { credentials: "include" });
+          const blob = await response.blob();
+          if (metadata.file_name && !hasFilenameExtension(attachment.name)) {
+            attachment.name = sanitizeDownloadName(metadata.file_name);
+          }
+          return blob;
+        }
+        async function fetchBackendAttachmentBlob(attachment) {
+          if (!attachment) return null;
+          if (attachment.pointer?.startsWith?.("sandbox:")) {
+            return fetchSandboxAttachmentBlob(attachment);
+          }
+          if (attachment.fileId) {
+            return fetchBackendFileBlob(attachment);
+          }
+          return null;
         }
         function downloadBlob(blob, filename) {
           const url = root.URL.createObjectURL(blob);
@@ -49160,6 +50157,7 @@ ${nested}` : ""}`;
           return files;
         }
         async function downloadZipExport() {
+          await prepareCompleteExportSnapshot();
           const messages = buildExportPayload();
           const manifest = buildAttachmentExportManifest();
           setStatus("Preparing ZIP export...");
@@ -49415,6 +50413,7 @@ ${nested}` : ""}`;
           syncHostUi();
           syncSidebarVisibility();
           refreshMessages();
+          scheduleDomHydration({ preferBackend: true, silent: true });
           ns.features.focusSearch();
         }
         function syncSidebarVisibility() {
@@ -49459,9 +50458,534 @@ ${nested}` : ""}`;
             edgeToggle.style.setProperty("left", `${Math.max(0, leftOffset)}px`, "important");
           }
         }
-        function refreshMessages() {
-          state.conversation.messages = ns.dom.collectMessages();
+        function resetBackendMessageCache() {
+          state.runtime.backendConversationId = null;
+          state.runtime.backendMessages = null;
+          state.runtime.backendFetchInFlight = null;
+        }
+        function resetDomMessageCache() {
+          state.runtime.domMessageCache = [];
+        }
+        function reindexMessages(messages) {
+          return messages.map((message, index) => ({
+            ...message,
+            index
+          }));
+        }
+        function getMessageCacheKey(message) {
+          const text = ns.dom.collapseText?.(message?.fullText || message?.preview || "");
+          return `${message?.role || "unknown"}
+${text}`;
+        }
+        function cloneCachedMessage(message) {
+          if (!message) return message;
+          return {
+            ...message,
+            domNode: message.domNode?.isConnected ? message.domNode : null
+          };
+        }
+        function findCachedMessageIndex(messages, key, usedIndices) {
+          for (let index = 0; index < messages.length; index += 1) {
+            if (usedIndices?.has(index)) continue;
+            if (getMessageCacheKey(messages[index]) === key) {
+              return index;
+            }
+          }
+          return -1;
+        }
+        function shiftUsedIndicesAfterInsert(usedIndices, insertIndex) {
+          const shifted = /* @__PURE__ */ new Set();
+          usedIndices.forEach((index) => {
+            shifted.add(index >= insertIndex ? index + 1 : index);
+          });
+          return shifted;
+        }
+        function mergeDomMessages(domMessages) {
+          const incoming = Array.isArray(domMessages) ? domMessages : [];
+          const cached = Array.isArray(state.runtime.domMessageCache) ? state.runtime.domMessageCache.map(cloneCachedMessage) : [];
+          if (!incoming.length) {
+            state.runtime.domMessageCache = cached;
+            return cached;
+          }
+          if (!cached.length) {
+            state.runtime.domMessageCache = reindexMessages(incoming.map(cloneCachedMessage));
+            return state.runtime.domMessageCache;
+          }
+          const result = [];
+          const seenInitialKeys = /* @__PURE__ */ new Set();
+          cached.forEach((message) => {
+            const key = getMessageCacheKey(message);
+            if (seenInitialKeys.has(key)) return;
+            seenInitialKeys.add(key);
+            result.push(message);
+          });
+          let anchorIndex = -1;
+          let pending = [];
+          let usedIndices = /* @__PURE__ */ new Set();
+          const insertPending = (nextAnchorIndex = -1) => {
+            if (!pending.length) return nextAnchorIndex;
+            let insertIndex = anchorIndex >= 0 ? anchorIndex + 1 : nextAnchorIndex >= 0 ? nextAnchorIndex : result.length;
+            const insertedCount = pending.length;
+            const originalInsertIndex = insertIndex;
+            pending.forEach((message) => {
+              result.splice(insertIndex, 0, cloneCachedMessage(message));
+              usedIndices = shiftUsedIndicesAfterInsert(usedIndices, insertIndex);
+              if (anchorIndex >= insertIndex) anchorIndex += 1;
+              insertIndex += 1;
+            });
+            pending = [];
+            anchorIndex = insertIndex - 1;
+            if (nextAnchorIndex >= 0 && originalInsertIndex <= nextAnchorIndex) {
+              return nextAnchorIndex + insertedCount;
+            }
+            return nextAnchorIndex;
+          };
+          incoming.forEach((message) => {
+            const key = getMessageCacheKey(message);
+            const existingIndex = findCachedMessageIndex(result, key, usedIndices);
+            if (existingIndex >= 0) {
+              const adjustedExistingIndex = insertPending(existingIndex);
+              result[adjustedExistingIndex] = {
+                ...result[adjustedExistingIndex],
+                ...cloneCachedMessage(message)
+              };
+              usedIndices.add(adjustedExistingIndex);
+              anchorIndex = adjustedExistingIndex;
+              return;
+            }
+            if (!pending.some((pendingMessage) => getMessageCacheKey(pendingMessage) === key)) {
+              pending.push(message);
+            }
+          });
+          insertPending();
+          state.runtime.domMessageCache = reindexMessages(result.map(cloneCachedMessage));
+          return state.runtime.domMessageCache;
+        }
+        function chooseBestMessages(domMessages) {
+          const backendMessages = state.runtime.backendMessages;
+          if (Array.isArray(backendMessages) && backendMessages.length > domMessages.length) {
+            return reindexMessages(backendMessages);
+          }
+          if (Array.isArray(backendMessages) && backendMessages.length) {
+            const backendByKey = new Map(
+              backendMessages.map((message) => [getMessageCacheKey(message), message])
+            );
+            return reindexMessages(
+              domMessages.map((message) => {
+                const backendMessage = backendByKey.get(getMessageCacheKey(message));
+                if (!backendMessage?.attachments?.length) return message;
+                return {
+                  ...message,
+                  attachments: [
+                    ...message.attachments || [],
+                    ...backendMessage.attachments
+                  ]
+                };
+              })
+            );
+          }
+          return reindexMessages(domMessages);
+        }
+        function applyMessageSnapshot(domMessages) {
+          state.conversation.messages = chooseBestMessages(domMessages);
+          if (typeof ns.dom.collectConversationAttachments === "function") {
+            state.conversation.attachments = ns.dom.collectConversationAttachments(
+              state.conversation.messages,
+              ns.dom.getChatContainer?.() || document
+            );
+          }
           ns.features.renderFiltersAndMessages();
+        }
+        function refreshMessages() {
+          const domMessages = ns.dom.collectMessages();
+          const mergedDomMessages = mergeDomMessages(domMessages);
+          applyMessageSnapshot(mergedDomMessages);
+          scheduleBackendMessageRefresh(mergedDomMessages);
+        }
+        function getAuditTextKey(value) {
+          return String(ns.dom.collapseText?.(value || "") || "").toLowerCase().replace(/\s+/g, " ").trim();
+        }
+        function getAuditMessageKey(message) {
+          return `${message?.role || "unknown"}
+${getAuditTextKey(message?.fullText || message?.preview || "")}`;
+        }
+        function countAuditKeys(keys) {
+          return keys.reduce((counts, key) => {
+            if (!key.trim()) return counts;
+            counts.set(key, (counts.get(key) || 0) + 1);
+            return counts;
+          }, /* @__PURE__ */ new Map());
+        }
+        function findAuditMissingKeys(sourceKeys, targetKeys) {
+          const targetCounts = countAuditKeys(targetKeys);
+          const missing = [];
+          sourceKeys.forEach((key) => {
+            const remaining = targetCounts.get(key) || 0;
+            if (remaining > 0) {
+              targetCounts.set(key, remaining - 1);
+            } else {
+              missing.push(key);
+            }
+          });
+          return missing;
+        }
+        function findAuditDuplicateKeys(keys) {
+          return Array.from(countAuditKeys(keys).entries()).filter(([, count]) => count > 1).map(([key, count]) => ({ key, count }));
+        }
+        function getDomTurnMarkers() {
+          return Array.from(
+            document.querySelectorAll("h1, h2, h3, h4, h5, h6, [role='heading']")
+          ).map((element) => {
+            const label = ns.dom.collapseText?.(element.textContent || "") || "";
+            if (/^you said:?$/i.test(label)) return { role: "user", label };
+            if (/^chatgpt said:?$/i.test(label)) return { role: "assistant", label };
+            return null;
+          }).filter(Boolean);
+        }
+        function debugMessageAudit() {
+          const domMarkers = getDomTurnMarkers();
+          const collectedMessages = ns.dom.collectMessages();
+          const stateMessages = state.conversation.messages || [];
+          const sidebarItems = Array.from(
+            document.querySelectorAll("#message-list li[data-message-index]")
+          );
+          const sidebarIndexes = new Set(
+            sidebarItems.map((item) => Number(item.dataset.messageIndex)).filter((index) => Number.isFinite(index))
+          );
+          const collectedKeys = collectedMessages.map(getAuditMessageKey);
+          const stateKeys = stateMessages.map(getAuditMessageKey);
+          return {
+            conversationId: state.conversation.id,
+            domMarkerCount: domMarkers.length,
+            domMarkerRoles: domMarkers.map((marker) => marker.role),
+            collectedCount: collectedMessages.length,
+            stateCount: stateMessages.length,
+            sidebarRenderedCount: sidebarItems.length,
+            missingFromState: findAuditMissingKeys(collectedKeys, stateKeys),
+            missingSidebarIndexes: stateMessages.map((message) => message.index).filter((index) => !sidebarIndexes.has(index)),
+            duplicateCollectedKeys: findAuditDuplicateKeys(collectedKeys),
+            duplicateStateKeys: findAuditDuplicateKeys(stateKeys),
+            messages: stateMessages.map((message) => ({
+              index: message.index,
+              role: message.role,
+              preview: message.preview,
+              source: message.source || "dom",
+              hasDomNode: Boolean(message.domNode?.isConnected)
+            }))
+          };
+        }
+        function getScrollElement() {
+          const candidates = [
+            document.scrollingElement,
+            document.documentElement,
+            document.body,
+            ns.dom.getChatContainer?.(),
+            ...Array.from(
+              document.querySelectorAll(
+                [
+                  "main",
+                  "[role='main']",
+                  "[data-testid*='conversation']",
+                  "[class*='overflow-y-auto']",
+                  "[class*='overflow-auto']",
+                  "[class*='scroll']"
+                ].join(", ")
+              )
+            )
+          ].filter(Boolean);
+          let best = candidates[0] || document.documentElement || document.body;
+          let bestScrollable = Math.max(
+            0,
+            (best?.scrollHeight || 0) - (best?.clientHeight || root.innerHeight || 0)
+          );
+          candidates.forEach((element) => {
+            if (!element?.isConnected && element !== document.documentElement && element !== document.body) {
+              return;
+            }
+            const style = root.getComputedStyle?.(element);
+            const canScrollByStyle = /auto|scroll|overlay/i.test(
+              `${style?.overflowY || ""} ${style?.overflow || ""}`
+            );
+            const scrollable = Math.max(
+              0,
+              (element.scrollHeight || 0) - (element.clientHeight || root.innerHeight || 0)
+            );
+            if (scrollable > bestScrollable && (canScrollByStyle || element === document.scrollingElement)) {
+              best = element;
+              bestScrollable = scrollable;
+            }
+          });
+          return best;
+        }
+        function getScrollTop(scroller) {
+          if (scroller === document.body || scroller === document.documentElement) {
+            return root.scrollY || scroller.scrollTop || 0;
+          }
+          return scroller?.scrollTop || 0;
+        }
+        function setScrollTop(scroller, top) {
+          if (!scroller) return;
+          if (scroller === document.body || scroller === document.documentElement) {
+            if (!root.__CHRONOCHAT_TEST__) {
+              try {
+                root.scrollTo?.({ top, behavior: "auto" });
+              } catch (_) {
+              }
+            }
+            scroller.scrollTop = top;
+            return;
+          }
+          try {
+            scroller.scrollTo?.({ top, behavior: "auto" });
+          } catch (_) {
+            scroller.scrollTop = top;
+          }
+          scroller.scrollTop = top;
+        }
+        function delay(ms) {
+          return new Promise((resolve) => root.setTimeout(resolve, ms));
+        }
+        function collectAndRenderHydrationWindow() {
+          const mergedDomMessages = mergeDomMessages(ns.dom.collectMessages());
+          applyMessageSnapshot(mergedDomMessages);
+          return mergedDomMessages.length;
+        }
+        function getBestScrollElementFromDocument(frameDocument, frameWindow) {
+          const candidates = [
+            frameDocument.querySelector?.("main"),
+            frameDocument.querySelector?.("#thread"),
+            frameDocument.scrollingElement,
+            frameDocument.documentElement,
+            frameDocument.body
+          ].filter(Boolean);
+          return candidates.reduce((best, element) => {
+            const bestScrollable = Math.max(
+              0,
+              (best?.scrollHeight || 0) - (best?.clientHeight || frameWindow.innerHeight || 0)
+            );
+            const scrollable = Math.max(
+              0,
+              (element.scrollHeight || 0) - (element.clientHeight || frameWindow.innerHeight || 0)
+            );
+            return scrollable > bestScrollable ? element : best;
+          }, candidates[0] || frameDocument.scrollingElement || frameDocument.body);
+        }
+        async function waitForFrameLoad(frame) {
+          await new Promise((resolve) => {
+            let done = false;
+            const finish = () => {
+              if (done) return;
+              done = true;
+              resolve();
+            };
+            frame.addEventListener("load", finish, { once: true });
+            root.setTimeout(finish, 8e3);
+          });
+          await delay(1200);
+        }
+        async function hydrateOffscreenConversationFrame() {
+          if (root.__CHRONOCHAT_TEST__ || typeof ns.dom.collectMessagesFromDocument !== "function") {
+            return [];
+          }
+          const frame = document.createElement("iframe");
+          frame.setAttribute("aria-hidden", "true");
+          frame.tabIndex = -1;
+          frame.src = root.location?.href || "";
+          frame.style.cssText = [
+            "position:fixed",
+            "left:-200vw",
+            "top:0",
+            "width:1280px",
+            "height:900px",
+            "border:0",
+            "opacity:0",
+            "pointer-events:none",
+            "z-index:-1"
+          ].join(";");
+          document.body.appendChild(frame);
+          try {
+            await waitForFrameLoad(frame);
+            const frameWindow = frame.contentWindow;
+            const frameDocument = frame.contentDocument || frameWindow?.document;
+            if (!frameWindow || !frameDocument) return [];
+            let collected = mergeDomMessages(ns.dom.collectMessagesFromDocument(frameDocument));
+            const scroller = getBestScrollElementFromDocument(frameDocument, frameWindow);
+            const viewportHeight = scroller?.clientHeight || frameWindow.innerHeight || 800;
+            const step = Math.max(360, Math.floor(viewportHeight * 0.75));
+            let position = 0;
+            let guard = 0;
+            while (guard < 60) {
+              const maxTop = Math.max(0, (scroller?.scrollHeight || 0) - viewportHeight);
+              if (!scroller || position >= maxTop) break;
+              position = Math.min(maxTop, position + step);
+              try {
+                scroller.scrollTo?.({ top: position, behavior: "auto" });
+              } catch (_) {
+                scroller.scrollTop = position;
+              }
+              scroller.scrollTop = position;
+              await delay(160);
+              collected = mergeDomMessages([
+                ...collected,
+                ...ns.dom.collectMessagesFromDocument(frameDocument)
+              ]);
+              guard += 1;
+            }
+            return collected;
+          } catch (_) {
+            return [];
+          } finally {
+            frame.remove();
+          }
+        }
+        async function hydrateVirtualizedDomMessages(options = {}) {
+          if (state.runtime.domHydrationInFlight || !state.ui.sidebarVisible) {
+            return state.runtime.domHydrationPromise || Promise.resolve();
+          }
+          state.runtime.domHydrationInFlight = true;
+          state.runtime.domHydrationPromise = (async () => {
+            try {
+              if (options.preferBackend) {
+                const conversationId = ns.dom.getBackendConversationId?.();
+                const backendMessages = await ensureBackendMessages(conversationId);
+                if (!state.ui.sidebarVisible) return;
+                if (backendMessages.length >= state.conversation.messages.length && backendMessages.length > 0) {
+                  applyMessageSnapshot(backendMessages);
+                  state.runtime.domHydratedConversationId = state.conversation.id;
+                  return;
+                }
+              }
+              const scroller = getScrollElement();
+              if (!scroller) return;
+              const originalTop = getScrollTop(scroller);
+              const viewportHeight = scroller.clientHeight || root.innerHeight || 800;
+              const step = Math.max(360, Math.floor(viewportHeight * 0.75));
+              if (Math.max(0, (scroller.scrollHeight || 0) - viewportHeight) <= 0) {
+                collectAndRenderHydrationWindow();
+                return;
+              }
+              try {
+                setScrollTop(scroller, 0);
+                await delay(140);
+                collectAndRenderHydrationWindow();
+                let position = 0;
+                let guard = 0;
+                while (guard < 60 && state.ui.sidebarVisible) {
+                  const maxTop = Math.max(0, (scroller.scrollHeight || 0) - viewportHeight);
+                  if (position >= maxTop) break;
+                  position = Math.min(maxTop, position + step);
+                  setScrollTop(scroller, position);
+                  await delay(140);
+                  collectAndRenderHydrationWindow();
+                  guard += 1;
+                }
+                setScrollTop(scroller, Math.max(0, (scroller.scrollHeight || 0) - viewportHeight));
+                await delay(140);
+                collectAndRenderHydrationWindow();
+              } finally {
+                setScrollTop(scroller, originalTop);
+                await delay(80);
+              }
+            } finally {
+              state.runtime.domHydratedConversationId = state.conversation.id;
+              state.runtime.domHydrationInFlight = false;
+              state.runtime.domHydrationPromise = null;
+              refreshMessages();
+              const pendingJumpIndex = state.runtime.pendingMessageJumpIndex;
+              state.runtime.pendingMessageJumpIndex = null;
+              if (state.ui.sidebarVisible && Number.isInteger(pendingJumpIndex) && pendingJumpIndex >= 0) {
+                root.setTimeout(() => {
+                  ns.features.scrollToMessage(pendingJumpIndex);
+                }, 120);
+              }
+            }
+          })();
+          return state.runtime.domHydrationPromise;
+        }
+        function scheduleDomHydration(options = {}) {
+          if (state.runtime.domHydratedConversationId === state.conversation.id) return;
+          if (state.runtime.domHydrationTimeoutId) {
+            root.clearTimeout(state.runtime.domHydrationTimeoutId);
+          }
+          state.runtime.domHydrationTimeoutId = root.setTimeout(() => {
+            state.runtime.domHydrationTimeoutId = null;
+            if (state.runtime.domHydratedConversationId === state.conversation.id) return;
+            hydrateVirtualizedDomMessages(options);
+          }, 250);
+        }
+        function scheduleBackendMessageRefresh(domMessages) {
+          const conversationId = ns.dom.getBackendConversationId?.();
+          if (!conversationId || typeof ns.dom.fetchBackendMessages !== "function") {
+            resetBackendMessageCache();
+            return;
+          }
+          if (state.runtime.backendConversationId !== conversationId) {
+            resetBackendMessageCache();
+            state.runtime.backendConversationId = conversationId;
+          }
+          if (Array.isArray(state.runtime.backendMessages) || state.runtime.backendFetchInFlight) {
+            return;
+          }
+          const request = ns.dom.fetchBackendMessages(conversationId).then((messages) => {
+            if (state.runtime.backendConversationId !== conversationId) return;
+            state.runtime.backendMessages = Array.isArray(messages) ? messages : [];
+            state.runtime.backendFetchInFlight = null;
+            if (state.runtime.backendMessages.length > domMessages.length) {
+              state.conversation.messages = reindexMessages(state.runtime.backendMessages);
+              ns.features.renderFiltersAndMessages();
+            }
+          }).catch(() => {
+            if (state.runtime.backendConversationId === conversationId) {
+              state.runtime.backendMessages = [];
+              state.runtime.backendFetchInFlight = null;
+            }
+          });
+          state.runtime.backendFetchInFlight = request;
+        }
+        async function ensureBackendMessages(conversationId) {
+          if (!conversationId || typeof ns.dom.fetchBackendMessages !== "function") {
+            return [];
+          }
+          if (state.runtime.backendConversationId !== conversationId) {
+            resetBackendMessageCache();
+            state.runtime.backendConversationId = conversationId;
+          }
+          if (state.runtime.backendFetchInFlight) {
+            await state.runtime.backendFetchInFlight;
+            return state.runtime.backendMessages || [];
+          }
+          if (Array.isArray(state.runtime.backendMessages)) {
+            return state.runtime.backendMessages;
+          }
+          try {
+            state.runtime.backendFetchInFlight = ns.dom.fetchBackendMessages(conversationId);
+            const messages = await state.runtime.backendFetchInFlight;
+            if (state.runtime.backendConversationId === conversationId) {
+              state.runtime.backendMessages = Array.isArray(messages) ? messages : [];
+            }
+          } catch (_) {
+            if (state.runtime.backendConversationId === conversationId) {
+              state.runtime.backendMessages = [];
+            }
+          } finally {
+            if (state.runtime.backendConversationId === conversationId) {
+              state.runtime.backendFetchInFlight = null;
+            }
+          }
+          return state.runtime.backendMessages || [];
+        }
+        async function ensureCompleteMessageSnapshot() {
+          const domMessages = mergeDomMessages(ns.dom.collectMessages());
+          applyMessageSnapshot(domMessages);
+          const conversationId = ns.dom.getBackendConversationId?.();
+          const backendMessages = await ensureBackendMessages(conversationId);
+          if (backendMessages.length >= state.conversation.messages.length) {
+            applyMessageSnapshot(mergeDomMessages(ns.dom.collectMessages()));
+            return state.conversation.messages;
+          }
+          await hydrateVirtualizedDomMessages();
+          refreshMessages();
+          return state.conversation.messages;
         }
         function scheduleRefresh() {
           if (!state.runtime.refreshDebounced) {
@@ -49662,8 +51186,10 @@ ${nested}` : ""}`;
           }
         }
         function syncHostUi() {
-          ns.ui.ensureHostToggleMounted();
-          ns.ui.syncHostTogglePosition?.();
+          if (state.runtime.hostUiReady) {
+            ns.ui.ensureHostToggleMounted();
+            ns.ui.syncHostTogglePosition?.();
+          }
           bindUiElements();
           ns.features.updateThemeUi();
         }
@@ -49868,6 +51394,10 @@ ${nested}` : ""}`;
           if (currentUrl === state.runtime.lastUrl) return;
           state.runtime.lastUrl = currentUrl;
           state.runtime.cachedChatContainer = null;
+          resetBackendMessageCache();
+          resetDomMessageCache();
+          state.runtime.domHydratedConversationId = null;
+          state.runtime.pendingMessageJumpIndex = null;
           state.conversation.id = ns.utils.getConversationId(currentUrl);
           resetPreviewRestoreState();
           state.ui.search = {
@@ -49933,6 +51463,7 @@ ${nested}` : ""}`;
           const sync = ns.utils.createDebouncer(syncHostUi, ns.config.hostUiSyncDelay);
           state.runtime.hostUiSync = sync;
           const observer = new MutationObserver(() => {
+            if (!state.runtime.hostUiReady) return;
             sync();
           });
           observer.observe(document.body, {
@@ -49958,6 +51489,10 @@ ${nested}` : ""}`;
             root.clearTimeout(state.runtime.observerRetryId);
             state.runtime.observerRetryId = null;
           }
+          if (state.runtime.domHydrationTimeoutId) {
+            root.clearTimeout(state.runtime.domHydrationTimeoutId);
+            state.runtime.domHydrationTimeoutId = null;
+          }
           if (state.runtime.observer) {
             state.runtime.observer.disconnect();
             state.runtime.observer = null;
@@ -49968,6 +51503,8 @@ ${nested}` : ""}`;
           }
           resetPreviewRestoreState();
           restoreHostInlineStyles();
+          state.runtime.hostUiReady = false;
+          state.runtime.pendingMessageJumpIndex = null;
           while (state.runtime.cleanupFns.length > 0) {
             const fn = state.runtime.cleanupFns.pop();
             try {
@@ -49991,7 +51528,10 @@ ${nested}` : ""}`;
           startRouteWatcher();
           startThemeWatcher();
           startHostUiWatcher();
-          syncHostUi();
+          root.setTimeout(() => {
+            state.runtime.hostUiReady = true;
+            syncHostUi();
+          }, root.__CHRONOCHAT_TEST__ ? 0 : 2500);
           addEventListenerWithCleanup(root, "pagehide", (event) => {
             if (!event.persisted) {
               cleanup();
@@ -50027,11 +51567,19 @@ ${nested}` : ""}`;
             cleanup,
             toggleSidebar,
             refreshMessages,
+            ensureCompleteMessageSnapshot,
             handleRouteChange,
             scheduleRefresh,
-            syncHostUi
+            syncHostUi,
+            debugMessageAudit
           };
         }
+        ns.debugMessageAudit = debugMessageAudit;
+        ns.runtime = {
+          ...ns.runtime || {},
+          ensureCompleteMessageSnapshot,
+          debugMessageAudit
+        };
       })(globalThis);
     }
   });

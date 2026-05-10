@@ -34,6 +34,16 @@ function readBlobArrayBuffer(blob) {
   });
 }
 
+async function waitForElement(selector, attempts = 40) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const element = document.querySelector(selector);
+    if (element) return element;
+    await flushAsync();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return null;
+}
+
 describe("ChronoChat content script", () => {
   test("mounts the ChronoChat toggle inline before Share and reinjects it after rerender", async () => {
     const { api } = await loadChronoChat({
@@ -729,6 +739,32 @@ describe("ChronoChat content script", () => {
     );
   });
 
+  test("does not collect account profile chrome as a conversation message", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(
+        `
+          <div data-message-author-role="user"><div>il workbook torna?</div></div>
+          <div data-message-author-role="assistant"><div>Workbook totals look correct.</div></div>
+        `,
+        `
+          <button type="button" aria-label="Open profile menu">
+            <img alt="Profile image" src="data:image/png;base64,avatar" />
+            <span>Niccolò Lucioli</span>
+            <span>Pro</span>
+          </button>
+        `,
+      ),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.messages).toHaveLength(2);
+    expect(document.getElementById("message-list").textContent).not.toContain(
+      "Niccolò Lucioli Pro",
+    );
+  });
+
   test("save does not open a preview when no direct download action is exposed", async () => {
     const previewClick = jest.fn();
     const { ns, api } = await loadChronoChat({
@@ -974,6 +1010,7 @@ describe("ChronoChat content script", () => {
       chatContainer.style.transition = "opacity 1s ease";
 
       api.toggleSidebar(true);
+      api.refreshMessages();
       await flushAsync();
       expect(chatContainer.style.marginLeft).toBe("24px");
       expect(chatContainer.style.marginRight).toBe("12px");
@@ -1462,21 +1499,109 @@ describe("ChronoChat content script", () => {
       document.querySelector(".jtch-export-menu-button").click();
       expect(exportGroup.open).toBe(true);
       document.querySelector('[data-export-format="json"]').click();
+      await flushAsync();
       expect(exportGroup.open).toBe(false);
       document.querySelector(".jtch-export-menu-button").click();
       document.querySelector('[data-export-format="csv"]').click();
+      await flushAsync();
       document.querySelector(".jtch-export-menu-button").click();
       document.querySelector('[data-export-format="markdown"]').click();
+      await flushAsync();
       document.querySelector(".jtch-export-menu-button").click();
       document.querySelector('[data-export-format="pdf"]').click();
-      await flushAsync();
+      const printFrame = await waitForElement(".jtch-print-frame");
 
-      expect(anchorClick).toHaveBeenCalledTimes(3);
-      expect(URL.createObjectURL).toHaveBeenCalledTimes(3);
-      expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
-      expect(document.querySelector(".jtch-print-frame")).not.toBeNull();
-      expect(document.getElementById("search-meta").textContent).toContain("PDF export opened");
+      expect(anchorClick).toHaveBeenCalled();
+      expect(URL.createObjectURL).toHaveBeenCalled();
+      expect(URL.revokeObjectURL).toHaveBeenCalled();
+      expect(printFrame).not.toBeNull();
       anchorClick.mockRestore();
+    });
+
+    test("waits for backend messages before exporting when the DOM is still virtualized", async () => {
+      const originalFetch = global.fetch;
+      const anchorClick = jest
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => {});
+      global.fetch = jest.fn(async (url) => {
+        if (String(url).includes("/backend-api/conversation/export-race")) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return {
+            ok: true,
+            json: async () => ({
+              current_node: "n4",
+              mapping: {
+                n1: {
+                  id: "n1",
+                  parent: null,
+                  message: {
+                    author: { role: "user" },
+                    content: { parts: ["first visible"] },
+                    create_time: 1,
+                  },
+                },
+                n2: {
+                  id: "n2",
+                  parent: "n1",
+                  message: {
+                    author: { role: "assistant" },
+                    content: { parts: ["second visible"] },
+                    create_time: 2,
+                  },
+                },
+                n3: {
+                  id: "n3",
+                  parent: "n2",
+                  message: {
+                    author: { role: "user" },
+                    content: { parts: ["missing middle user"] },
+                    create_time: 3,
+                  },
+                },
+                n4: {
+                  id: "n4",
+                  parent: "n3",
+                  message: {
+                    author: { role: "assistant" },
+                    content: { parts: ["missing final assistant"] },
+                    create_time: 4,
+                  },
+                },
+              },
+            }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+      });
+
+      try {
+        const { ns, api } = await loadChronoChat({
+          pathname: "/c/export-race",
+          html: createHostShell(`
+            <div data-message-author-role="user"><div>first visible</div></div>
+            <div data-message-author-role="assistant"><div>second visible</div></div>
+          `),
+        });
+
+        api.toggleSidebar(true);
+        await ns.features.downloadExport("json");
+
+        const exportedBlob = URL.createObjectURL.mock.calls.at(-1)?.[0];
+        const exportedJson = JSON.parse(
+          new TextDecoder().decode(await readBlobArrayBuffer(exportedBlob)),
+        );
+        expect(exportedJson.conversation.messages).toHaveLength(4);
+        expect(exportedJson.conversation.messages.map((message) => message.content)).toEqual([
+          "first visible",
+          "second visible",
+          "missing middle user",
+          "missing final assistant",
+        ]);
+        expect(anchorClick).toHaveBeenCalled();
+      } finally {
+        global.fetch = originalFetch;
+        anchorClick.mockRestore();
+      }
     });
 
     test("exports a ZIP bundle with conversation files, manifest, and fetchable attachments", async () => {
@@ -1557,6 +1682,144 @@ describe("ChronoChat content script", () => {
 
       global.fetch = originalFetch;
       anchorClick.mockRestore();
+    });
+
+    test("exports backend and sandbox ChatGPT files when they are absent from DOM links", async () => {
+      const originalFetch = global.fetch;
+      const anchorClick = jest
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => {});
+      const makeBlobResponse = (text, type) => {
+        const bytes = new TextEncoder().encode(text);
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-type": type }),
+          blob: async () => ({
+            size: bytes.byteLength,
+            type,
+            arrayBuffer: async () => bytes.buffer,
+          }),
+        };
+      };
+      global.fetch = jest.fn(async (url) => {
+        const href = String(url);
+        if (href.includes("/backend-api/conversation/backend-files/interpreter/download")) {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({ "content-type": "application/json" }),
+            json: async () => ({
+              download_url: "https://signed.local/workbook.xlsx",
+              file_name: "workbook.xlsx",
+            }),
+          };
+        }
+        if (href === "https://signed.local/workbook.xlsx") {
+          return makeBlobResponse(
+            "xlsx-bytes",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          );
+        }
+        if (href.includes("/backend-api/files/download/file_abc123")) {
+          return makeBlobResponse("pdf-backend", "application/pdf");
+        }
+        if (href.includes("/backend-api/conversation/backend-files")) {
+          return {
+            ok: true,
+            json: async () => ({
+              conversation_id: "backend-files",
+              current_node: "n2",
+              mapping: {
+                n1: {
+                  id: "n1",
+                  parent: null,
+                  message: {
+                    id: "m1",
+                    author: { role: "user" },
+                    content: { parts: ["uploaded the PDF"] },
+                    metadata: {
+                      attachments: [
+                        {
+                          id: "file_abc123",
+                          name: "ALPINE FINALE.pdf",
+                          mime_type: "application/pdf",
+                        },
+                      ],
+                    },
+                    create_time: 1,
+                  },
+                },
+                n2: {
+                  id: "n2",
+                  parent: "n1",
+                  message: {
+                    id: "m2",
+                    author: { role: "assistant" },
+                    content: {
+                      parts: [
+                        "Generated workbook: sandbox:/mnt/data/workbook.xlsx",
+                      ],
+                    },
+                    metadata: {},
+                    create_time: 2,
+                  },
+                },
+              },
+            }),
+          };
+        }
+        return { ok: false, status: 404, headers: new Headers(), text: async () => "" };
+      });
+
+      try {
+        const { ns, api } = await loadChronoChat({
+          pathname: "/c/backend-files",
+          html: createHostShell(`
+            <div data-message-author-role="user"><div>uploaded the PDF</div></div>
+            <div data-message-author-role="assistant">
+              <div>Generated workbook: sandbox:/mnt/data/workbook.xlsx</div>
+            </div>
+          `),
+        });
+
+        api.toggleSidebar(true);
+        await flushAsync();
+        await flushAsync();
+
+        expect(ns.state.conversation.attachments.map((attachment) => attachment.name)).toEqual([
+          "ALPINE FINALE.pdf",
+          "workbook.xlsx",
+        ]);
+
+        const createObjectURL = URL.createObjectURL;
+        await ns.features.downloadZipExport();
+
+        const zipBlob = createObjectURL.mock.calls.at(-1)?.[0];
+        const zipBytes = new Uint8Array(await readBlobArrayBuffer(zipBlob));
+        const files = unzipSync(zipBytes);
+        const manifest = JSON.parse(strFromU8(files["attachments-manifest.json"]));
+
+        expect(strFromU8(files["attachments/01-ALPINE FINALE.pdf"])).toBe("pdf-backend");
+        expect(strFromU8(files["attachments/02-workbook.xlsx"])).toBe("xlsx-bytes");
+        expect(manifest.attachments).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: "ALPINE FINALE.pdf",
+              fileId: "file_abc123",
+              included: true,
+            }),
+            expect.objectContaining({
+              name: "workbook.xlsx",
+              pointer: "sandbox:/mnt/data/workbook.xlsx",
+              included: true,
+            }),
+          ]),
+        );
+      } finally {
+        global.fetch = originalFetch;
+        anchorClick.mockRestore();
+      }
     });
 
     test("removed search mode prefs cannot change visible results", async () => {
@@ -1718,6 +1981,163 @@ describe("ChronoChat content script", () => {
     expect(api.ns.state.conversation.messages[1].domNode.classList).toContain(
       "jtch-target-highlight",
     );
+  });
+
+  test("clicking a cached sidebar message resolves its current live DOM node", async () => {
+    const { api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>first user</div></div>
+        <div data-message-author-role="assistant"><div>only assistant</div></div>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    api.ns.state.conversation.messages[1].domNode = document.createElement("div");
+    const item = document.querySelector('#message-list li[data-message-index="1"]');
+    item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith(
+      expect.objectContaining({ block: "start" }),
+    );
+    expect(api.ns.state.conversation.messages[1].domNode.isConnected).toBe(true);
+    expect(api.ns.state.conversation.messages[1].domNode.textContent).toContain(
+      "only assistant",
+    );
+  });
+
+  test("clicking a backend-only sidebar message resolves it by virtualized order", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn(async () => ({ ok: false, status: 404 }));
+    const { api, ns } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>latest rendered user</div></div>
+        <div data-message-author-role="assistant"><div>latest rendered assistant</div></div>
+      `),
+    });
+    const main = document.querySelector("main");
+    Object.defineProperty(main, "clientHeight", { value: 500, configurable: true });
+    Object.defineProperty(main, "scrollHeight", { value: 2000, configurable: true });
+    main.style.overflowY = "auto";
+    main.scrollTo = jest.fn(({ top }) => {
+      if (top === 0) {
+        main.innerHTML = `
+          <div data-message-author-role="user"><div>rendered first prompt</div></div>
+          <div data-message-author-role="assistant"><div>rendered first answer</div></div>
+          <div data-message-author-role="user"><div>latest rendered user</div></div>
+          <div data-message-author-role="assistant"><div>latest rendered assistant</div></div>
+        `;
+      }
+    });
+
+    try {
+      api.toggleSidebar(true);
+      if (ns.state.runtime.domHydrationTimeoutId) {
+        clearTimeout(ns.state.runtime.domHydrationTimeoutId);
+        ns.state.runtime.domHydrationTimeoutId = null;
+      }
+      ns.state.runtime.domHydratedConversationId = ns.state.conversation.id;
+      ns.state.conversation.messages = [
+        {
+          index: 0,
+          role: "user",
+          preview: "backend-only first prompt",
+          fullText: "backend-only first prompt",
+          domNode: null,
+        },
+        {
+          index: 1,
+          role: "assistant",
+          preview: "backend-only first answer",
+          fullText: "backend-only first answer",
+          domNode: null,
+        },
+        {
+          index: 2,
+          role: "user",
+          preview: "latest backend user",
+          fullText: "latest backend user",
+          domNode: null,
+        },
+        {
+          index: 3,
+          role: "assistant",
+          preview: "latest backend assistant",
+          fullText: "latest backend assistant",
+          domNode: null,
+        },
+      ];
+      ns.features.renderFiltersAndMessages();
+      await flushAsync();
+
+      document
+        .querySelector('#message-list li[data-message-index="0"]')
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 240));
+
+      expect(main.scrollTo).toHaveBeenCalledWith(
+        expect.objectContaining({ top: 0, behavior: "auto" }),
+      );
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith(
+        expect.objectContaining({ block: "start" }),
+      );
+      expect(ns.state.conversation.messages[0].domNode.textContent).toContain(
+        "rendered first prompt",
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test("clicking a sidebar message during hydration queues the jump", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn(async () => ({ ok: false, status: 404 }));
+    const { api, ns } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>latest visible user</div></div>
+      `),
+    });
+    const main = document.querySelector("main");
+
+    try {
+      api.toggleSidebar(true);
+      if (ns.state.runtime.domHydrationTimeoutId) {
+        clearTimeout(ns.state.runtime.domHydrationTimeoutId);
+        ns.state.runtime.domHydrationTimeoutId = null;
+      }
+      ns.state.conversation.messages = [
+        {
+          index: 0,
+          role: "user",
+          preview: "hydrated target user",
+          fullText: "hydrated target user",
+          domNode: null,
+        },
+      ];
+      ns.features.renderFiltersAndMessages();
+      ns.state.runtime.domHydrationInFlight = true;
+      ns.state.runtime.domHydrationPromise = new Promise((resolve) => {
+        setTimeout(() => {
+          main.innerHTML = `
+            <div data-message-author-role="user"><div>hydrated target user</div></div>
+          `;
+          ns.state.runtime.domHydrationInFlight = false;
+          ns.state.runtime.domHydrationPromise = null;
+          resolve();
+        }, 80);
+      });
+
+      document
+        .querySelector('#message-list li[data-message-index="0"]')
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+      expect(ns.state.runtime.pendingMessageJumpIndex).toBe(0);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   test("recreated sidebar keeps close, filter, and message click interactions working", async () => {
@@ -1914,6 +2334,740 @@ describe("ChronoChat content script", () => {
       const items = Array.from(document.querySelectorAll("#message-list li[data-message-index]"));
       expect(items[0].dataset.role).toBe("user");
       expect(items[1].dataset.role).toBe("assistant");
+    });
+
+    test("recovers messages from current ChatGPT role headings when turn wrappers have no metadata", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div class="relative">
+            <div>
+              <h5>You said:</h5>
+              <div>c'è un modo di importare chat da un account di ChatGPT ad un altro?</div>
+              <div aria-label="Your message actions"><button>Copy message</button></div>
+            </div>
+          </div>
+          <div class="relative">
+            <div>
+              <h5>ChatGPT said:</h5>
+              <div class="markdown">
+                <p>Sì, ma non esiste un vero import/merge perfetto tra due account ChatGPT.</p>
+              </div>
+              <div aria-label="Response actions"><button>Copy response</button></div>
+            </div>
+          </div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const items = Array.from(document.querySelectorAll("#message-list li[data-message-index]"));
+      expect(items).toHaveLength(2);
+      expect(items[0].dataset.role).toBe("user");
+      expect(items[0].textContent).toContain("importare chat");
+      expect(items[0].textContent).not.toContain("You said");
+      expect(items[1].dataset.role).toBe("assistant");
+      expect(items[1].textContent).toContain("import/merge perfetto");
+    });
+
+    test("recovers right-aligned ChatGPT user bubbles without role metadata", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div>
+            <h5>ChatGPT said:</h5>
+            <div class="markdown">First assistant answer.</div>
+          </div>
+          <div
+            id="visual-user-bubble"
+            style="background-color: rgb(0, 0, 0); color: white; border-radius: 18px; border-top-left-radius: 18px;"
+          >
+            come facciamo a correggere tutto ?
+          </div>
+          <div>
+            <h5>ChatGPT said:</h5>
+            <div class="markdown">Second assistant answer.</div>
+          </div>
+        `),
+      });
+      document.getElementById("visual-user-bubble").getBoundingClientRect = () => ({
+        left: 760,
+        right: 1024,
+        top: 180,
+        bottom: 220,
+        width: 264,
+        height: 40,
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const items = Array.from(document.querySelectorAll("#message-list li[data-message-index]"));
+      expect(items).toHaveLength(3);
+      expect(items[0].dataset.role).toBe("assistant");
+      expect(items[1].dataset.role).toBe("user");
+      expect(items[1].textContent).toContain("come facciamo a correggere tutto");
+      expect(items[2].dataset.role).toBe("assistant");
+    });
+
+    test("recovers nested ChatGPT user bubbles when the visual frame owns the background", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div>
+            <h5>ChatGPT said:</h5>
+            <div class="markdown">First assistant answer.</div>
+          </div>
+          <div
+            id="visual-user-bubble-frame"
+            style="background-color: rgb(18, 18, 18); color: white; border-radius: 18px;"
+          >
+            <div id="visual-user-bubble-inner">
+              <span id="visual-user-bubble-text">come facciamo a correggere tutto ?</span>
+            </div>
+          </div>
+          <div>
+            <h5>ChatGPT said:</h5>
+            <div class="markdown">Second assistant answer.</div>
+          </div>
+        `),
+      });
+      const bubbleRect = {
+        left: 760,
+        right: 1024,
+        top: 180,
+        bottom: 220,
+        width: 264,
+        height: 40,
+      };
+      document.getElementById("visual-user-bubble-frame").getBoundingClientRect = () =>
+        bubbleRect;
+      document.getElementById("visual-user-bubble-inner").getBoundingClientRect = () => ({
+        ...bubbleRect,
+        left: 780,
+        width: 244,
+      });
+      document.getElementById("visual-user-bubble-text").getBoundingClientRect = () => ({
+        ...bubbleRect,
+        left: 792,
+        width: 220,
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const items = Array.from(document.querySelectorAll("#message-list li[data-message-index]"));
+      expect(items).toHaveLength(3);
+      expect(items[0].dataset.role).toBe("assistant");
+      expect(items[1].dataset.role).toBe("user");
+      expect(items[1].textContent).toContain("come facciamo a correggere tutto");
+      expect(items[2].dataset.role).toBe("assistant");
+    });
+
+    test("uses ChatGPT backend conversation data when the rendered DOM omits a turn", async () => {
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          current_node: "n8",
+          mapping: {
+            n1: {
+              id: "n1",
+              parent: null,
+              message: {
+                author: { role: "user" },
+                content: { parts: ["il workbook torna?"] },
+                create_time: 1,
+              },
+            },
+            n2: {
+              id: "n2",
+              parent: "n1",
+              message: {
+                author: { role: "assistant" },
+                content: { parts: ["First assistant answer."] },
+                create_time: 2,
+              },
+            },
+            n3: {
+              id: "n3",
+              parent: "n2",
+              message: {
+                author: { role: "user" },
+                content: { parts: ["come facciamo a correggere tutto ?"] },
+                create_time: 3,
+              },
+            },
+            n4: {
+              id: "n4",
+              parent: "n3",
+              message: {
+                author: { role: "assistant" },
+                content: { parts: ["Second assistant answer."] },
+                create_time: 4,
+              },
+            },
+            n5: {
+              id: "n5",
+              parent: "n4",
+              message: {
+                author: { role: "assistant" },
+                content: { parts: ["Third assistant answer."] },
+                create_time: 5,
+              },
+            },
+            n6: {
+              id: "n6",
+              parent: "n5",
+              message: {
+                author: { role: "user" },
+                content: { parts: ["in confronto al mercato reale questo CTR è adeguato?"] },
+                create_time: 6,
+              },
+            },
+            n7: {
+              id: "n7",
+              parent: "n6",
+              message: {
+                author: { role: "assistant" },
+                content: { parts: ["Fourth assistant answer."] },
+                create_time: 7,
+              },
+            },
+            n8: {
+              id: "n8",
+              parent: "n7",
+              message: {
+                author: { role: "user" },
+                content: { parts: ["dammi il cazzo di workbook più realistico possibile"] },
+                create_time: 8,
+              },
+            },
+          },
+        }),
+      }));
+
+      try {
+        const { api, ns } = await loadChronoChat({
+          pathname: "/g/g-p-alpine/c/backend-chat",
+          html: createHostShell(`
+            <div><h5>You said:</h5><div>il workbook torna?</div></div>
+            <div><h5>ChatGPT said:</h5><div class="markdown">First assistant answer.</div></div>
+            <div><h5>ChatGPT said:</h5><div class="markdown">Second assistant answer.</div></div>
+            <div><h5>ChatGPT said:</h5><div class="markdown">Third assistant answer.</div></div>
+            <div><h5>You said:</h5><div>in confronto al mercato reale questo CTR è adeguato?</div></div>
+            <div><h5>ChatGPT said:</h5><div class="markdown">Fourth assistant answer.</div></div>
+            <div><h5>You said:</h5><div>dammi il cazzo di workbook più realistico possibile</div></div>
+          `),
+        });
+
+        api.toggleSidebar(true);
+        await flushAsync();
+        await flushAsync();
+
+        const items = Array.from(document.querySelectorAll("#message-list li[data-message-index]"));
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringMatching(/\/backend-api\/conversation\/backend-chat$/),
+          { credentials: "include" },
+        );
+        expect(items).toHaveLength(8);
+        expect(ns.state.conversation.messages).toHaveLength(8);
+        expect(items[2].dataset.role).toBe("user");
+        expect(items[2].textContent).toContain("come facciamo a correggere tutto");
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test("retries ChatGPT backend conversation fetch with session auth headers", async () => {
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn(async (url) => {
+        const href = String(url);
+        if (href.includes("/api/auth/session")) {
+          return {
+            ok: true,
+            json: async () => ({ accessToken: "test-token" }),
+          };
+        }
+        if (href.includes("/backend-api/accounts/check/")) {
+          return {
+            ok: true,
+            json: async () => ({
+              accounts: {
+                default: { account: { account_id: "account-default" } },
+              },
+            }),
+          };
+        }
+        if (href.includes("/backend-api/conversation/secure-chat")) {
+          const callCount = global.fetch.mock.calls.filter(([calledUrl]) =>
+            String(calledUrl).includes("/backend-api/conversation/secure-chat"),
+          ).length;
+          if (callCount === 1) {
+            return { ok: false, status: 401 };
+          }
+          return {
+            ok: true,
+            json: async () => ({
+              current_node: "n2",
+              mapping: {
+                n1: {
+                  id: "n1",
+                  parent: null,
+                  message: {
+                    author: { role: "user" },
+                    content: { parts: ["secure user message"] },
+                  },
+                },
+                n2: {
+                  id: "n2",
+                  parent: "n1",
+                  message: {
+                    author: { role: "assistant" },
+                    content: { parts: ["secure assistant answer"] },
+                  },
+                },
+              },
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      try {
+        const { ns } = await loadChronoChat({
+          pathname: "/c/secure-chat",
+          html: createHostShell(""),
+        });
+
+        const messages = await ns.dom.fetchBackendMessages("secure-chat");
+        const retryCall = global.fetch.mock.calls.find(([url, options]) => {
+          return (
+            String(url).includes("/backend-api/conversation/secure-chat") &&
+            options?.headers?.Authorization === "Bearer test-token"
+          );
+        });
+
+        expect(retryCall?.[1].headers).toMatchObject({
+          Authorization: "Bearer test-token",
+          "X-Authorization": "Bearer test-token",
+          "Chatgpt-Account-Id": "account-default",
+        });
+        expect(messages.map((message) => message.fullText)).toEqual([
+          "secure user message",
+          "secure assistant answer",
+        ]);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test("falls back to the ChatGPT page bridge when isolated backend fetch fails", async () => {
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn(async () => ({ ok: false, status: 403 }));
+      const bridgeHandler = (event) => {
+        const message = event.data;
+        if (message?.source !== "chronochat-content" || message.type !== "fetchConversation") {
+          return;
+        }
+        window.postMessage(
+          {
+            source: "chronochat-page-bridge",
+            type: "fetchConversationResult",
+            requestId: message.requestId,
+            ok: true,
+            status: 200,
+            payload: {
+              current_node: "n4",
+              mapping: {
+                n1: {
+                  id: "n1",
+                  parent: null,
+                  message: {
+                    author: { role: "user" },
+                    content: { parts: ["bridge user one"] },
+                  },
+                },
+                n2: {
+                  id: "n2",
+                  parent: "n1",
+                  message: {
+                    author: { role: "assistant" },
+                    content: { parts: ["bridge assistant one"] },
+                  },
+                },
+                n3: {
+                  id: "n3",
+                  parent: "n2",
+                  message: {
+                    author: { role: "user" },
+                    content: { parts: ["bridge user two"] },
+                  },
+                },
+                n4: {
+                  id: "n4",
+                  parent: "n3",
+                  message: {
+                    author: { role: "assistant" },
+                    content: { parts: ["bridge assistant two"] },
+                  },
+                },
+              },
+            },
+          },
+          window.location.origin,
+        );
+      };
+      window.addEventListener("message", bridgeHandler);
+
+      try {
+        const { ns } = await loadChronoChat({
+          pathname: "/c/bridge-chat",
+          html: createHostShell(""),
+        });
+
+        const messages = await ns.dom.fetchBackendMessages("bridge-chat");
+        expect(messages.map((message) => message.fullText)).toEqual([
+          "bridge user one",
+          "bridge assistant one",
+          "bridge user two",
+          "bridge assistant two",
+        ]);
+      } finally {
+        window.removeEventListener("message", bridgeHandler);
+        global.fetch = originalFetch;
+      }
+    });
+
+    test("exposes a debug audit for DOM markers, collected messages, and sidebar rows", async () => {
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div>
+            <h4>You said:</h4>
+            <div>il workbook torna?</div>
+            <div aria-label="Your message actions"><button>Copy message</button></div>
+          </div>
+          <div>
+            <h4>ChatGPT said:</h4>
+            <div class="markdown">Prima risposta.</div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </div>
+          <div>
+            <h4>You said:</h4>
+            <div>come facciamo a correggere tutto ?</div>
+            <div aria-label="Your message actions"><button>Copy message</button></div>
+          </div>
+          <div>
+            <h4>ChatGPT said:</h4>
+            <div class="markdown">Correzione workbook.</div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const audit = ns.debugMessageAudit();
+      expect(audit.domMarkerCount).toBe(4);
+      expect(audit.collectedCount).toBe(4);
+      expect(audit.stateCount).toBe(4);
+      expect(audit.sidebarRenderedCount).toBe(4);
+      expect(audit.missingFromState).toEqual([]);
+      expect(audit.missingSidebarIndexes).toEqual([]);
+      expect(audit.duplicateCollectedKeys).toEqual([]);
+      expect(audit.duplicateStateKeys).toEqual([]);
+      expect(audit.messages.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+      ]);
+      expect(audit.messages[2].preview).toContain("come facciamo");
+    });
+
+    test("recovers current ChatGPT assistant turns that only expose response actions", async () => {
+      const { api } = await loadChronoChat({
+        html: createHostShell(`
+          <div>
+            <h5>You said:</h5>
+            <div>il workbook torna?</div>
+            <div aria-label="Your message actions"><button>Copy message</button></div>
+          </div>
+          <div>
+            <h5>ChatGPT said:</h5>
+            <div class="markdown">First assistant answer.</div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </div>
+          <div>
+            <button>Thought for 46s</button>
+            <div>
+              Nicco, perché nel workbook i click sembrano distribuiti proporzionalmente.
+            </div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </div>
+          <div>
+            <h5>ChatGPT said:</h5>
+            <div class="markdown">Third assistant answer.</div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      const items = Array.from(document.querySelectorAll("#message-list li[data-message-index]"));
+      expect(items).toHaveLength(4);
+      expect(items[2].dataset.role).toBe("assistant");
+      expect(items[2].textContent).toContain("perché nel workbook");
+      expect(items[2].textContent).not.toContain("Response actions");
+    });
+
+    test("recovers ChatGPT assistant content when role markers are empty", async () => {
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div>
+            <h5>You said:</h5>
+            <div data-message-author-role="user">il workbook torna?</div>
+            <div aria-label="Your message actions"><button>Copy message</button></div>
+          </div>
+          <div>
+            <h5>ChatGPT said:</h5>
+            <div data-message-author-role="assistant"></div>
+            <div class="markdown">
+              <p>Nicco, quasi sì, ma non lo lascerei così senza una micro-correzione.</p>
+            </div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </div>
+          <div>
+            <h5>You said:</h5>
+            <div data-message-author-role="user">come si calcola il conversion rate</div>
+            <div aria-label="Your message actions"><button>Copy message</button></div>
+          </div>
+          <div>
+            <h5>ChatGPT said:</h5>
+            <div data-message-author-role="assistant"></div>
+            <div class="markdown">
+              <p>Conversion Rate (%) = conversioni / base di partenza x 100</p>
+            </div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      expect(ns.state.conversation.messages).toHaveLength(4);
+      expect(ns.state.conversation.messages.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+      ]);
+      expect(ns.state.conversation.messages[1].fullText).toContain("micro-correzione");
+      expect(ns.state.conversation.messages[3].fullText).toContain("Conversion Rate");
+    });
+
+    test("splits broad ChatGPT turn containers instead of swallowing nested turns", async () => {
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-testid="conversation-turn">
+            <div>
+              <h5>You said:</h5>
+              <div data-message-author-role="user">il workbook torna?</div>
+              <div aria-label="Your message actions"><button>Copy message</button></div>
+            </div>
+            <div>
+              <h5>ChatGPT said:</h5>
+              <div data-message-author-role="assistant"></div>
+              <div class="markdown"><p>Prima risposta sul workbook.</p></div>
+              <div aria-label="Response actions"><button>Copy response</button></div>
+            </div>
+            <div>
+              <h5>You said:</h5>
+              <div data-message-author-role="user">come si calcola il conversion rate</div>
+              <div aria-label="Your message actions"><button>Copy message</button></div>
+            </div>
+            <div>
+              <h5>ChatGPT said:</h5>
+              <div data-message-author-role="assistant"></div>
+              <div class="markdown"><p>Formula conversion rate.</p></div>
+              <div aria-label="Response actions"><button>Copy response</button></div>
+            </div>
+          </div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      expect(ns.state.conversation.messages).toHaveLength(4);
+      expect(ns.state.conversation.messages.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+      ]);
+      expect(ns.state.conversation.messages[2].fullText).toContain("conversion rate");
+      expect(ns.state.conversation.messages[3].fullText).toContain("Formula conversion rate");
+    });
+
+    test("accumulates virtualized ChatGPT message windows across refreshes", async () => {
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>il workbook torna?</div></div>
+          <div data-message-author-role="assistant"><div>Prima risposta.</div></div>
+          <div data-message-author-role="user"><div>dammi il workbook realistico</div></div>
+          <div data-message-author-role="assistant"><div>Workbook realistico creato.</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      document.querySelector("main").innerHTML = `
+        <div data-message-author-role="user"><div>il workbook torna?</div></div>
+        <div data-message-author-role="assistant"><div>Prima risposta.</div></div>
+        <div data-message-author-role="user"><div>come si calcola il conversion rate</div></div>
+        <div data-message-author-role="assistant"><div>Formula conversion rate.</div></div>
+        <div data-message-author-role="user"><div>dammi il workbook realistico</div></div>
+        <div data-message-author-role="assistant"><div>Workbook realistico creato.</div></div>
+      `;
+
+      api.refreshMessages();
+      await flushAsync();
+
+      expect(ns.state.conversation.messages).toHaveLength(6);
+      expect(ns.state.conversation.messages.map((message) => message.fullText)).toEqual([
+        "il workbook torna?",
+        "Prima risposta.",
+        "come si calcola il conversion rate",
+        "Formula conversion rate.",
+        "dammi il workbook realistico",
+        "Workbook realistico creato.",
+      ]);
+    });
+
+    test("inserts virtualized middle windows between anchors without duplicating exports", async () => {
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>il workbook torna?</div></div>
+          <div data-message-author-role="assistant"><div>Prima risposta.</div></div>
+          <div data-message-author-role="user"><div>come facciamo a correggere tutto ?</div></div>
+          <div data-message-author-role="assistant"><div>Correzione workbook.</div></div>
+          <div data-message-author-role="user"><div>dammi il workbook realistico</div></div>
+          <div data-message-author-role="assistant"><div>Workbook realistico creato.</div></div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      document.querySelector("main").innerHTML = `
+        <div data-message-author-role="user"><div>il workbook torna?</div></div>
+        <div data-message-author-role="assistant"><div>Prima risposta.</div></div>
+        <div data-message-author-role="user"><div>perchè il CTR viene praticamente identico per ogni voce?</div></div>
+        <div data-message-author-role="assistant"><div>Risposta CTR identico.</div></div>
+        <div data-message-author-role="user"><div>come facciamo a correggere tutto ?</div></div>
+        <div data-message-author-role="assistant"><div>Correzione workbook.</div></div>
+        <div data-message-author-role="user"><div>in confronto al mercato reale questo CTR è adeguato?</div></div>
+        <div data-message-author-role="assistant"><div>Risposta mercato.</div></div>
+        <div data-message-author-role="user"><div>dammi il workbook realistico</div></div>
+        <div data-message-author-role="assistant"><div>Workbook realistico creato.</div></div>
+      `;
+
+      api.refreshMessages();
+      await flushAsync();
+      api.refreshMessages();
+      await flushAsync();
+
+      expect(ns.state.conversation.messages.map((message) => message.fullText)).toEqual([
+        "il workbook torna?",
+        "Prima risposta.",
+        "perchè il CTR viene praticamente identico per ogni voce?",
+        "Risposta CTR identico.",
+        "come facciamo a correggere tutto?",
+        "Correzione workbook.",
+        "in confronto al mercato reale questo CTR è adeguato?",
+        "Risposta mercato.",
+        "dammi il workbook realistico",
+        "Workbook realistico creato.",
+      ]);
+    });
+
+    test("automatically hydrates ChatGPT's internal scroll container without loading UI", async () => {
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn(async () => ({ ok: false, status: 404 }));
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user"><div>latest user</div></div>
+          <div data-message-author-role="assistant"><div>latest assistant</div></div>
+        `),
+      });
+      const main = document.querySelector("main");
+      Object.defineProperty(main, "clientHeight", { value: 500, configurable: true });
+      Object.defineProperty(main, "scrollHeight", { value: 2000, configurable: true });
+      main.style.overflowY = "auto";
+      main.scrollTo = jest.fn(({ top }) => {
+        if (top === 0) {
+          main.innerHTML = `
+            <div data-message-author-role="user"><div>old user</div></div>
+            <div data-message-author-role="assistant"><div>old assistant</div></div>
+            <div data-message-author-role="user"><div>latest user</div></div>
+            <div data-message-author-role="assistant"><div>latest assistant</div></div>
+          `;
+        }
+      });
+
+      try {
+        api.toggleSidebar(true);
+        await new Promise((resolve) => setTimeout(resolve, 2600));
+
+        expect(ns.state.conversation.messages.map((message) => message.fullText)).toEqual([
+          "old user",
+          "old assistant",
+          "latest user",
+          "latest assistant",
+        ]);
+        expect(main.scrollTo).toHaveBeenCalled();
+        expect(document.querySelector(".jtch-hydration-mask")).toBeNull();
+        expect(document.body.textContent).not.toContain("Loading full conversation");
+        expect(document.getElementById("message-count").textContent).toBe("4");
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test("keeps full current ChatGPT assistant content when no prose wrapper is present", async () => {
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user">
+            <div>c'è un modo di importare chat da un account di ChatGPT ad un altro?</div>
+            <button>Show more</button>
+          </div>
+          <div data-message-author-role="assistant">
+            <div>Controllo la documentazione ufficiale OpenAI, Nicco.</div>
+            <button>Thought for 6s</button>
+            <div>
+              <p>Sì, ma non esiste un vero import/merge perfetto.</p>
+              <ol><li>Dal vecchio account fai l'export dei dati.</li></ol>
+            </div>
+            <div><button>Copy response</button></div>
+          </div>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      expect(ns.state.conversation.messages).toHaveLength(2);
+      expect(ns.state.conversation.messages[1].fullText).toContain(
+        "Controllo la documentazione ufficiale",
+      );
+      expect(ns.state.conversation.messages[1].fullText).toContain(
+        "import/merge perfetto",
+      );
+      expect(ns.state.conversation.messages[1].fullText).not.toContain("Copy response");
     });
 
     test("creates a root conversation id for root URLs with model query params", async () => {

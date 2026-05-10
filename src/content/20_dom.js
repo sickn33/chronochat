@@ -248,6 +248,13 @@
     domNode,
     actionNode,
     downloadNode,
+    fileId,
+    pointer,
+    backendConversationId,
+    backendMessageId,
+    backendGizmoId,
+    backendSource,
+    metadata,
   }) {
     const normalizedUrl = getUrl(url);
     const fallbackName = getFilenameFromUrl(normalizedUrl);
@@ -269,6 +276,13 @@
       domNode,
       actionNode,
       downloadNode,
+      fileId,
+      pointer,
+      backendConversationId,
+      backendMessageId,
+      backendGizmoId,
+      backendSource,
+      metadata,
     };
   }
 
@@ -507,12 +521,24 @@
   }
 
   function getAttachmentIdentity(attachment) {
-    return `${attachment.name}|${attachment.url}|${attachment.kind}`;
+    const source =
+      attachment.kind === "image"
+        ? attachment.url || attachment.fileId || attachment.pointer || ""
+        : "";
+    return `${attachment.name}|${attachment.kind}|${source}`;
+  }
+
+  function hasReadableAttachmentSource(attachment) {
+    return Boolean(
+      attachment?.url ||
+        attachment?.fileId ||
+        attachment?.pointer?.startsWith?.("sandbox:"),
+    );
   }
 
   function collectConversationAttachments(messages, rootNode) {
     const attachments = [];
-    const seen = new Set();
+    const seen = new Map();
     const seenSpreadsheetNodes = new Set();
     const push = (attachment) => {
       if (!attachment) return;
@@ -523,8 +549,15 @@
         return;
       }
       const identity = getAttachmentIdentity(attachment);
-      if (seen.has(identity)) return;
-      seen.add(identity);
+      if (seen.has(identity)) {
+        const existingIndex = seen.get(identity);
+        const existing = attachments[existingIndex];
+        if (!hasReadableAttachmentSource(existing) && hasReadableAttachmentSource(attachment)) {
+          attachments[existingIndex] = attachment;
+        }
+        return;
+      }
+      seen.set(identity, attachments.length);
       attachments.push(attachment);
     };
 
@@ -547,6 +580,7 @@
       (node) =>
         isVisibleElement(node) &&
         hasMeaningfulText(node) &&
+        !isLikelyUiArtifact(node) &&
         !isChronoChatNode(node),
     );
 
@@ -555,6 +589,276 @@
         (other) => other !== node && other.contains(node),
       );
     });
+  }
+
+  function getRoleHeadingInfo(element) {
+    const label = collapseText(element?.textContent || "");
+    if (/^you said:?$/i.test(label)) return { role: "user" };
+    if (/^chatgpt said:?$/i.test(label)) return { role: "assistant" };
+    return null;
+  }
+
+  function getRoleHeadingNodes(context) {
+    return safeQuerySelectorAll("h1, h2, h3, h4, h5, h6, [role='heading']", context)
+      .filter((element) => getRoleHeadingInfo(element));
+  }
+
+  function countRoleHeadings(element) {
+    return getRoleHeadingNodes(element).length;
+  }
+
+  function resolveRoleHeadingMessageNode(heading, boundary) {
+    let current = heading?.parentElement || null;
+    let best = null;
+    let depth = 0;
+
+    while (
+      current &&
+      current !== document.body &&
+      current !== boundary?.parentElement &&
+      depth < 8
+    ) {
+      if (isChronoChatNode(current) || isLikelyUiArtifact(current)) {
+        break;
+      }
+
+      const headingCount = countRoleHeadings(current);
+      if (headingCount > 1) {
+        break;
+      }
+
+      if (headingCount === 1 && hasMeaningfulText(current)) {
+        best = current;
+      }
+
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return best;
+  }
+
+  function getRoleHeadingMessageNodes(context) {
+    const boundary = context || document;
+    const seen = new Set();
+    return getRoleHeadingNodes(boundary)
+      .map((heading) => resolveRoleHeadingMessageNode(heading, boundary))
+      .filter((node) => {
+        if (!node || seen.has(node)) return false;
+        seen.add(node);
+        return true;
+      });
+  }
+
+  function getMessageActionInfo(element) {
+    const label = getElementLabel(element);
+    if (/^your message actions$/i.test(label)) return { role: "user" };
+    if (/^response actions$/i.test(label)) return { role: "assistant" };
+    return null;
+  }
+
+  function getMessageActionNodes(context) {
+    return safeQuerySelectorAll("[aria-label], [role='group'], div", context).filter((element) =>
+      getMessageActionInfo(element),
+    );
+  }
+
+  function countMessageActions(element) {
+    return getMessageActionNodes(element).length;
+  }
+
+  function countRoleMarkers(element) {
+    const selfMarker = element?.matches?.("[data-message-author-role]") ? 1 : 0;
+    return selfMarker + safeQuerySelectorAll("[data-message-author-role]", element).length;
+  }
+
+  function isSingleTurnCandidate(element) {
+    if (!element) return false;
+    return (
+      countRoleHeadings(element) <= 1 &&
+      countMessageActions(element) <= 1 &&
+      countRoleMarkers(element) <= 1
+    );
+  }
+
+  function resolveActionDelimitedMessageNode(actionNode, boundary) {
+    let current = actionNode?.parentElement || null;
+    let best = null;
+    let depth = 0;
+
+    while (
+      current &&
+      current !== document.body &&
+      current !== boundary?.parentElement &&
+      depth < 8
+    ) {
+      if (isChronoChatNode(current) || isLikelyUiArtifact(current)) {
+        break;
+      }
+
+      const actionCount = countMessageActions(current);
+      if (actionCount > 1) {
+        break;
+      }
+
+      if (actionCount === 1 && hasMeaningfulText(current)) {
+        best = current;
+      }
+
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return best;
+  }
+
+  function getActionDelimitedMessageNodes(context) {
+    const boundary = context || document;
+    const seen = new Set();
+    return getMessageActionNodes(boundary)
+      .map((actionNode) => resolveActionDelimitedMessageNode(actionNode, boundary))
+      .filter((node) => {
+        if (!node || seen.has(node)) return false;
+        seen.add(node);
+        return true;
+      });
+  }
+
+  function parseRgbColor(value) {
+    const match = String(value || "").match(
+      /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+%?))?/i,
+    );
+    if (!match) return null;
+    const alphaValue = match[4];
+    const alpha = alphaValue?.endsWith?.("%")
+      ? Number.parseFloat(alphaValue) / 100
+      : alphaValue === undefined
+        ? 1
+        : Number.parseFloat(alphaValue);
+    return {
+      r: Number(match[1]),
+      g: Number(match[2]),
+      b: Number(match[3]),
+      a: Number.isFinite(alpha) ? alpha : 1,
+    };
+  }
+
+  function getColorLuminance(color) {
+    return color ? (color.r * 299 + color.g * 587 + color.b * 114) / 1000 : 255;
+  }
+
+  function getVisualBubbleFrame(element) {
+    if (!element || isChronoChatNode(element) || !isVisibleElement(element)) return null;
+    if (
+      element.matches?.(
+        "[data-message-author-role], [data-testid*='conversation-turn'], [aria-label='Your message actions'], [aria-label='Response actions']",
+      )
+    ) {
+      return null;
+    }
+
+    const text = collapseText(element.textContent || "");
+    if (text.length < 4 || text.length > 1200) return null;
+
+    const viewportWidth = root.innerWidth || document.documentElement.clientWidth || 1280;
+    let current = element;
+    let depth = 0;
+
+    while (current && current !== document.body && depth < 5) {
+      if (isChronoChatNode(current) || !isVisibleElement(current)) {
+        return null;
+      }
+      if (
+        current.matches?.(
+          "[data-message-author-role], [data-testid*='conversation-turn'], [aria-label='Your message actions'], [aria-label='Response actions']",
+        )
+      ) {
+        return null;
+      }
+
+      const currentText = collapseText(current.textContent || "");
+      if (currentText !== text) {
+        break;
+      }
+
+      const rect = current.getBoundingClientRect?.();
+      if (rect && rect.width >= 32 && rect.height >= 16 && rect.width <= viewportWidth * 0.72) {
+        const rightAligned =
+          rect.left >= viewportWidth * 0.32 && rect.right >= viewportWidth * 0.58;
+        const style = root.getComputedStyle?.(current);
+        const background = parseRgbColor(style?.backgroundColor);
+        const backgroundLuminance = getColorLuminance(background);
+        const radii = [
+          style?.borderTopLeftRadius,
+          style?.borderTopRightRadius,
+          style?.borderBottomLeftRadius,
+          style?.borderBottomRightRadius,
+          style?.borderRadius,
+        ].map((value) => Number.parseFloat(value || "0"));
+        const borderRadius = Math.max(...radii.filter(Number.isFinite), 0);
+
+        if (
+          rightAligned &&
+          background &&
+          background.a >= 0.1 &&
+          backgroundLuminance < 112 &&
+          borderRadius >= 8
+        ) {
+          if (
+            current.querySelector?.(
+              [
+                "button",
+                "[role='button']",
+                "a",
+                "form",
+                "textarea",
+                "table",
+                "pre",
+                "img",
+                "canvas",
+                "[role='grid']",
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "h5",
+                "h6",
+                "[role='heading']",
+                "[aria-label='Your message actions']",
+                "[aria-label='Response actions']",
+              ].join(", "),
+            )
+          ) {
+            return null;
+          }
+          return current;
+        }
+      }
+
+      current = current.parentElement;
+      depth += 1;
+    }
+
+    return null;
+  }
+
+  function isLikelyVisualUserBubble(element) {
+    return Boolean(getVisualBubbleFrame(element));
+  }
+
+  function getVisualUserBubbleNodes(context, existingNodes = []) {
+    const seen = new Set();
+    const nodes = [];
+    safeQuerySelectorAll("div, p, span", context || document).forEach((node) => {
+      const frame = getVisualBubbleFrame(node);
+      if (!frame || seen.has(frame)) return;
+      if (existingNodes.some((existing) => hasPrimaryTurnRelationship(frame, [existing]))) {
+        return;
+      }
+      seen.add(frame);
+      nodes.push(frame);
+    });
+    return nodes;
   }
 
   function compareDocumentOrder(left, right) {
@@ -665,6 +969,16 @@
     );
     if (directRole !== "unknown") return directRole;
 
+    const roleHeading = getRoleHeadingNodes(node)[0];
+    const roleHeadingInfo = getRoleHeadingInfo(roleHeading);
+    if (roleHeadingInfo?.role) return roleHeadingInfo.role;
+
+    const messageAction = getMessageActionNodes(node)[0];
+    const messageActionInfo = getMessageActionInfo(messageAction);
+    if (messageActionInfo?.role) return messageActionInfo.role;
+
+    if (isLikelyVisualUserBubble(node)) return "user";
+
     const nestedRoleNode = node.querySelector?.("[data-message-author-role]");
     if (nestedRoleNode) {
       const nestedRole = normalizeRoleValue(
@@ -708,6 +1022,14 @@
 
   function isLikelyUiArtifact(node) {
     if (!node) return false;
+    const label = getElementLabel(node);
+    if (
+      /open profile menu|profile image/i.test(label) ||
+      node.closest?.('[aria-label*="profile menu" i], [aria-label*="account" i]') ||
+      node.querySelector?.('img[alt*="Profile" i], [aria-label*="profile menu" i]')
+    ) {
+      return true;
+    }
     if (node.querySelector?.('[data-testid="writing-block-container"]')) return false;
     if (
       node.querySelector?.(
@@ -915,19 +1237,26 @@
       "[data-message-content]",
     ];
 
+    const explicitTurnNode = Boolean(
+      node.matches?.("[data-message-author-role], [data-testid*='conversation-turn'], article[data-testid*='conversation-turn']") ||
+        getRoleHeadingNodes(node).length,
+    );
     let contentNode = safeQuerySelector(textSelectors, node);
     if (!contentNode) {
       const divs = Array.from(node.querySelectorAll("div"));
       contentNode =
-        divs.find((element) => collapseText(element.textContent).length > 12) || node;
+        explicitTurnNode
+          ? node
+          : divs.find((element) => collapseText(element.textContent).length > 12) || node;
     }
 
     const clone = contentNode.cloneNode(true);
     clone
       .querySelectorAll(
-        'button, [class*="icon"], form, textarea, .flex.absolute, .sr-only, nav, header, footer',
+        'button, [class*="icon"], form, textarea, .flex.absolute, .sr-only, nav, header, footer, [aria-label="Your message actions"], [aria-label="Response actions"]',
       )
       .forEach((element) => element.remove());
+    getRoleHeadingNodes(clone).forEach((element) => element.remove());
 
     const codeNodes = Array.from(clone.querySelectorAll("pre code, pre"));
     const codeText = collapseText(
@@ -1166,6 +1495,522 @@
     }, 0);
   }
 
+  function getBackendConversationId(url = root.location?.href || "") {
+    try {
+      const parsed = new URL(url, root.location?.origin || "https://chatgpt.com");
+      const match = (parsed.pathname || "").match(/\/c\/([^/]+)/);
+      return match?.[1] || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function extractBackendTextPart(part, depth = 0) {
+    if (part == null || depth > 5) return "";
+    if (typeof part === "string" || typeof part === "number" || typeof part === "boolean") {
+      return String(part);
+    }
+    if (Array.isArray(part)) {
+      return part
+        .map((item) => extractBackendTextPart(item, depth + 1))
+        .filter(Boolean)
+        .join("\n");
+    }
+    if (typeof part !== "object") return "";
+
+    const directValue =
+      part.text ||
+      part.content ||
+      part.value ||
+      part.transcript ||
+      part.result ||
+      "";
+    if (typeof directValue === "string" && directValue.trim()) {
+      return directValue;
+    }
+
+    const nestedCandidates = [
+      part.parts,
+      part.children,
+      part.items,
+      part.content_parts,
+      part.text_parts,
+    ];
+    return nestedCandidates
+      .map((candidate) => extractBackendTextPart(candidate, depth + 1))
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function extractBackendMessageText(message) {
+    const content = message?.content;
+    if (!content) return "";
+    const text = content.parts
+      ? extractBackendTextPart(content.parts)
+      : extractBackendTextPart(content);
+    return normalizeMarkdown(text);
+  }
+
+  function getBackendChainNodes(payload) {
+    const mapping = payload?.mapping;
+    if (!mapping || typeof mapping !== "object") return [];
+    const chain = [];
+    const seen = new Set();
+    let currentId = payload.current_node;
+
+    while (currentId && mapping[currentId] && !seen.has(currentId)) {
+      seen.add(currentId);
+      chain.push(mapping[currentId]);
+      currentId = mapping[currentId]?.parent;
+    }
+
+    if (chain.length) {
+      return chain.reverse();
+    }
+
+    return Object.values(mapping).sort((left, right) => {
+      const leftTime = Number(left?.message?.create_time || 0);
+      const rightTime = Number(right?.message?.create_time || 0);
+      if (leftTime !== rightTime) return leftTime - rightTime;
+      return String(left?.id || "").localeCompare(String(right?.id || ""));
+    });
+  }
+
+  function collectBackendMessagesFromPayload(payload) {
+    const messages = [];
+    getBackendChainNodes(payload).forEach((node) => {
+      const message = node?.message;
+      const role = normalizeRoleValue(message?.author?.role || "");
+      if (role !== "user" && role !== "assistant") return;
+      if (message?.metadata?.is_visually_hidden_from_conversation) return;
+
+      const fullText = extractBackendMessageText(message);
+      if (!fullText) return;
+      const preview = collapseText(fullText);
+      if (!preview) return;
+
+      messages.push({
+        index: messages.length,
+        role,
+        preview,
+        fullText,
+        attachments: collectBackendMessageAttachments(
+          message,
+          messages.length,
+          role,
+          payload,
+        ),
+        domNode: null,
+        source: "backend",
+      });
+    });
+    return messages;
+  }
+
+  function collectMessagesFromDocument(sourceDocument) {
+    const doc = sourceDocument || document;
+    const turnNodes = safeQuerySelectorAll(
+      "section[data-testid^='conversation-turn-'], [data-testid^='conversation-turn-']",
+      doc,
+    );
+    const messages = [];
+    const seen = new Set();
+
+    turnNodes.forEach((turnNode) => {
+      const turnRole = normalizeRoleValue(turnNode.getAttribute?.("data-turn"));
+      const headingRole = getRoleHeadingInfo(getRoleHeadingNodes(turnNode)[0])?.role || "unknown";
+      const attrRole = normalizeRoleValue(
+        turnNode
+          .querySelector?.("[data-message-author-role]")
+          ?.getAttribute?.("data-message-author-role"),
+      );
+      const role =
+        turnRole !== "unknown"
+          ? turnRole
+          : headingRole !== "unknown"
+            ? headingRole
+            : attrRole;
+      if (role !== "user" && role !== "assistant") return;
+
+      const roleNode =
+        turnNode.querySelector?.(`[data-message-author-role="${role}"]`) ||
+        turnNode.querySelector?.("[data-message-author-role]") ||
+        turnNode;
+      const contentNode =
+        roleNode.querySelector?.(".markdown, .whitespace-pre-wrap") ||
+        roleNode.querySelector?.("[data-start], p, pre, table, ol, ul") ||
+        roleNode;
+      const clone = contentNode.cloneNode(true);
+      clone
+        .querySelectorAll?.(
+          [
+            "button",
+            "[role='button']",
+            "[aria-label='Your message actions']",
+            "[aria-label='Response actions']",
+            "[data-testid*='turn-action']",
+            "[data-testid*='copy']",
+          ].join(", "),
+        )
+        .forEach((node) => node.remove());
+
+      const fullText = normalizeMarkdown(clone.innerText || clone.textContent || "");
+      const preview = collapseText(fullText);
+      if (!preview) return;
+
+      const key = `${role}|${preview.toLowerCase()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      messages.push({
+        index: messages.length,
+        role,
+        preview,
+        fullText,
+        attachments: [],
+        domNode: null,
+        source: "offscreen-dom",
+      });
+    });
+
+    return messages;
+  }
+
+  async function getBackendAuthHeaders() {
+    const headers = {};
+    try {
+      const sessionEndpoint = new URL(
+        "/api/auth/session",
+        root.location?.origin || "https://chatgpt.com",
+      ).toString();
+      const sessionResponse = await root.fetch(sessionEndpoint, {
+        credentials: "include",
+      });
+      if (!sessionResponse?.ok) return headers;
+      const session = await sessionResponse.json();
+      const accessToken = session?.accessToken;
+      if (!accessToken) return headers;
+
+      headers.Authorization = `Bearer ${accessToken}`;
+      headers["X-Authorization"] = `Bearer ${accessToken}`;
+
+      const accountId = await getBackendAccountId(headers);
+      if (accountId) headers["Chatgpt-Account-Id"] = accountId;
+    } catch (_) {}
+    return headers;
+  }
+
+  function getWorkspaceCookieId() {
+    try {
+      return (
+        document.cookie
+          .split(";")
+          .map((part) => part.trim())
+          .find((part) => /^oai-did-workspace=/.test(part))
+          ?.split("=")
+          .slice(1)
+          .join("=") || ""
+      );
+    } catch (_) {
+      return "";
+    }
+  }
+
+  async function getBackendAccountId(authHeaders) {
+    try {
+      const endpoint = new URL(
+        "/backend-api/accounts/check/v4-2023-04-27",
+        root.location?.origin || "https://chatgpt.com",
+      ).toString();
+      const response = await root.fetch(endpoint, {
+        credentials: "include",
+        headers: authHeaders,
+      });
+      if (!response?.ok) return "";
+      const payload = await response.json();
+      const accounts = payload?.accounts || {};
+      const workspaceId = getWorkspaceCookieId();
+      const workspaceAccount = workspaceId ? accounts[workspaceId] : null;
+      const account =
+        workspaceAccount ||
+        Object.values(accounts).find((candidate) => candidate?.account?.account_id);
+      return account?.account?.account_id || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function fetchBackendPayloadViaPageBridge(conversationId) {
+    if (!conversationId || typeof root.postMessage !== "function") {
+      return Promise.resolve(null);
+    }
+
+    return injectPageBridge().then(() => new Promise((resolve) => {
+      const requestId = `jtch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      let settled = false;
+      const cleanup = () => {
+        root.removeEventListener?.("message", handleMessage);
+        root.clearTimeout?.(timeoutId);
+      };
+      const finish = (payload) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(payload);
+      };
+      const handleMessage = (event) => {
+        if (event.source && event.source !== root) return;
+        const message = event.data;
+        if (
+          !message ||
+          message.source !== "chronochat-page-bridge" ||
+          message.type !== "fetchConversationResult" ||
+          message.requestId !== requestId
+        ) {
+          return;
+        }
+        finish(message.ok && message.payload ? message.payload : null);
+      };
+      const timeoutId = root.setTimeout?.(() => finish(null), 1800);
+
+      root.addEventListener?.("message", handleMessage);
+      root.postMessage(
+        {
+          source: "chronochat-content",
+          type: "fetchConversation",
+          requestId,
+          conversationId,
+        },
+        root.location?.origin || "*",
+      );
+    }));
+  }
+
+  function injectPageBridge() {
+    if (document.documentElement.dataset.jtchPageBridgeInjected === "true") {
+      return Promise.resolve();
+    }
+    if (typeof chrome === "undefined" || !chrome.runtime?.getURL) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = chrome.runtime.getURL("page_bridge.js");
+      script.async = false;
+      script.dataset.jtchPageBridge = "true";
+      script.onload = () => {
+        document.documentElement.dataset.jtchPageBridgeInjected = "true";
+        script.remove();
+        resolve();
+      };
+      script.onerror = () => {
+        script.remove();
+        resolve();
+      };
+      (document.head || document.documentElement).appendChild(script);
+    });
+  }
+
+  function pointerToBackendFileId(pointer) {
+    const match = String(pointer || "").match(/\bfile[-_][a-z0-9_-]+/i);
+    return match?.[0] || "";
+  }
+
+  function getBackendFileName(ref) {
+    const metadata = ref?.metadata || {};
+    const pointerName = String(ref?.pointer || "").split("/").filter(Boolean).pop() || "";
+    return collapseText(
+      ref?.name ||
+        metadata.name ||
+        metadata.file_name ||
+        metadata.filename ||
+        metadata.title ||
+        (ref?.url ? getFilenameFromUrl(ref.url) : "") ||
+        pointerName ||
+        ref?.fileId ||
+        "ChatGPT file",
+    );
+  }
+
+  function getBackendFileTypeLabel(ref) {
+    const metadata = ref?.metadata || {};
+    return (
+      getFileExtension(ref?.name) ||
+      getFileExtension(ref?.pointer) ||
+      getFileExtension(ref?.url) ||
+      getFileExtension(metadata.name || metadata.file_name || metadata.filename || "") ||
+      getAttachmentTypeLabel("", "", metadata.mime_type || metadata.file_type || metadata.mime || "")
+    );
+  }
+
+  function createBackendAttachment(ref, messageIndex, role, payload) {
+    const pointer = String(ref?.pointer || "");
+    const fileId = ref?.fileId || pointerToBackendFileId(pointer);
+    const isImage =
+      /image/i.test(`${ref?.metadata?.mime_type || ""} ${ref?.metadata?.file_type || ""}`) ||
+      /\.(png|jpe?g|gif|webp|svg|heic|avif)(?:$|\?|#)/i.test(
+        `${ref?.name || ""} ${pointer} ${ref?.url || ""}`,
+      );
+    return createAttachment({
+      name: getBackendFileName({ ...ref, fileId }),
+      url: ref?.url || (isInlineAssetPointer(pointer) ? pointer : ""),
+      typeLabel: isImage ? "Image" : getBackendFileTypeLabel(ref),
+      kind: isImage ? "image" : undefined,
+      messageIndex,
+      role,
+      fileId,
+      pointer,
+      backendConversationId:
+        ref?.conversationId ||
+        payload?.conversation_id ||
+        payload?.conversationId ||
+        getBackendConversationId(),
+      backendMessageId: ref?.messageId,
+      backendGizmoId: ref?.gizmoId || payload?.gizmo_id || payload?.gizmoId || null,
+      backendSource: ref?.source || "backend",
+      metadata: ref?.metadata || null,
+    });
+  }
+
+  function isInlineAssetPointer(value) {
+    return /^https:\/\/(?:cdn\.oaistatic\.com|oaidalleapiprodscus\.blob\.core\.windows\.net)\//i.test(
+      String(value || ""),
+    );
+  }
+
+  function collectBackendRefsFromText(text, add) {
+    String(text || "")
+      .match(/\{\{file:([^}]+)\}\}/g)
+      ?.forEach((token) => add({ fileId: token.slice(7, -2), source: "inline-placeholder" }));
+    String(text || "")
+      .match(/sandbox:[^\s)\]]+/g)
+      ?.forEach((pointer) => add({ pointer, source: "sandbox-link" }));
+  }
+
+  function collectBackendRefsFromParts(parts, add) {
+    if (!Array.isArray(parts)) return;
+    parts.forEach((part) => {
+      if (typeof part === "string") {
+        collectBackendRefsFromText(part, add);
+        return;
+      }
+      if (!part || typeof part !== "object") return;
+      if (part.asset_pointer) {
+        add({
+          fileId: pointerToBackendFileId(part.asset_pointer),
+          pointer: part.asset_pointer,
+          source: part.content_type || "asset_pointer",
+          metadata: part,
+        });
+      }
+      if (part.audio_asset_pointer?.asset_pointer) {
+        add({
+          fileId: pointerToBackendFileId(part.audio_asset_pointer.asset_pointer),
+          pointer: part.audio_asset_pointer.asset_pointer,
+          source: "voice-audio",
+          metadata: part.audio_asset_pointer,
+        });
+      }
+      collectBackendRefsFromParts(part.parts, add);
+      collectBackendRefsFromParts(part.children, add);
+      collectBackendRefsFromParts(part.items, add);
+    });
+  }
+
+  function collectBackendRefsFromMetadata(metadata, add) {
+    if (!metadata || typeof metadata !== "object") return;
+    (metadata.attachments || []).forEach((attachment) => {
+      const fileId = attachment?.id || attachment?.file_id;
+      if (!fileId) return;
+      add({
+        fileId,
+        source: "attachment",
+        metadata: attachment,
+        name: attachment.name || attachment.file_name || attachment.filename,
+      });
+    });
+
+    Object.values(metadata.content_references_by_file || {})
+      .flat()
+      .forEach((ref) => {
+        if (ref?.file_id) add({ fileId: ref.file_id, source: "cref", metadata: ref });
+        if (ref?.asset_pointer) {
+          add({
+            fileId: pointerToBackendFileId(ref.asset_pointer),
+            pointer: ref.asset_pointer,
+            source: "cref-pointer",
+            metadata: ref,
+          });
+        }
+      });
+
+    const n7 = metadata.n7jupd_crefs_by_file || metadata.n7jupd_crefs || {};
+    const n7Refs = Array.isArray(n7) ? n7 : Object.values(n7).flat();
+    n7Refs.forEach((ref) => {
+      if (ref?.file_id) add({ fileId: ref.file_id, source: "n7jupd-cref", metadata: ref });
+      if (ref?.asset_pointer) {
+        add({
+          fileId: pointerToBackendFileId(ref.asset_pointer),
+          pointer: ref.asset_pointer,
+          source: "n7jupd-cref-pointer",
+          metadata: ref,
+        });
+      }
+    });
+  }
+
+  function collectBackendMessageAttachments(message, messageIndex, role, payload) {
+    const refs = new Map();
+    const add = (ref) => {
+      const pointer = String(ref?.pointer || "");
+      const fileId = ref?.fileId || pointerToBackendFileId(pointer);
+      if (!fileId && !pointer) return;
+      const key = fileId || pointer;
+      if (refs.has(key)) return;
+      refs.set(key, {
+        ...ref,
+        fileId,
+        pointer,
+        messageId: message?.id,
+      });
+    };
+
+    collectBackendRefsFromMetadata(message?.metadata, add);
+    collectBackendRefsFromParts(message?.content?.parts, add);
+    return Array.from(refs.values()).map((ref) =>
+      createBackendAttachment(ref, messageIndex, role, payload),
+    );
+  }
+
+  async function fetchBackendMessages(conversationId = getBackendConversationId()) {
+    if (!conversationId || typeof root.fetch !== "function") return [];
+    const endpoint = new URL(
+      `/backend-api/conversation/${encodeURIComponent(conversationId)}`,
+      root.location?.origin || "https://chatgpt.com",
+    ).toString();
+    let response = null;
+    try {
+      response = await root.fetch(endpoint, { credentials: "include" });
+      if (!response?.ok && response?.status !== 404) {
+        const headers = await getBackendAuthHeaders();
+        if (Object.keys(headers).length) {
+          response = await root.fetch(endpoint, {
+            credentials: "include",
+            headers,
+          });
+        }
+      }
+    } catch (_) {}
+
+    if (!response?.ok) {
+      const bridgedPayload = await fetchBackendPayloadViaPageBridge(conversationId);
+      if (bridgedPayload) return collectBackendMessagesFromPayload(bridgedPayload);
+    }
+
+    if (!response?.ok) return [];
+    const payload = await response.json();
+    return collectBackendMessagesFromPayload(payload);
+  }
+
   function collectMessages() {
     const container = getChatContainer();
     const primaryNodes = safeQuerySelectorAll(
@@ -1186,13 +2031,49 @@
         ? safeQuerySelectorAll(fallbackMessageSelectors, document)
         : fallbackNodes;
 
-    const primarySet = Array.from(new Set(resolvedPrimaryNodes));
+    const primarySet = Array.from(new Set(resolvedPrimaryNodes)).filter(
+      (node) =>
+        isVisibleElement(node) &&
+        hasMeaningfulText(node) &&
+        isSingleTurnCandidate(node) &&
+        !isChronoChatNode(node),
+    );
+    const roleHeadingSet = Array.from(
+      new Set(getRoleHeadingMessageNodes(container || document)),
+    ).filter((node) => !hasPrimaryTurnRelationship(node, primarySet));
+    const actionDelimitedSet = Array.from(
+      new Set(getActionDelimitedMessageNodes(container || document)),
+    ).filter(
+      (node) =>
+        !hasPrimaryTurnRelationship(node, primarySet) &&
+        !hasPrimaryTurnRelationship(node, roleHeadingSet),
+    );
+    const visualUserBubbleSet = Array.from(
+      new Set(
+        getVisualUserBubbleNodes(container || document, [
+          ...primarySet,
+          ...roleHeadingSet,
+          ...actionDelimitedSet,
+        ]),
+      ),
+    );
     const fallbackSet = Array.from(new Set(resolvedFallbackNodes)).filter(
       (node) =>
-        primarySet.length === 0 || !hasPrimaryTurnRelationship(node, primarySet),
+        (primarySet.length === 0 || !hasPrimaryTurnRelationship(node, primarySet)) &&
+        (roleHeadingSet.length === 0 || !hasPrimaryTurnRelationship(node, roleHeadingSet)) &&
+        (actionDelimitedSet.length === 0 ||
+          !hasPrimaryTurnRelationship(node, actionDelimitedSet)) &&
+        (visualUserBubbleSet.length === 0 ||
+          !hasPrimaryTurnRelationship(node, visualUserBubbleSet)),
     );
 
-    let nodes = [...primarySet, ...fallbackSet];
+    let nodes = [
+      ...primarySet,
+      ...roleHeadingSet,
+      ...actionDelimitedSet,
+      ...visualUserBubbleSet,
+      ...fallbackSet,
+    ];
     nodes = [...nodes, ...getOrphanMediaMessageNodes(container || document, nodes)].sort(
       compareDocumentOrder,
     );
@@ -1234,6 +2115,11 @@
     detectRoleHint,
     inferRole,
     collectMessages,
+    collectMessagesFromDocument,
+    getBackendConversationId,
+    collectBackendMessagesFromPayload,
+    fetchBackendMessages,
+    collectConversationAttachments,
     collapseText,
     normalizeMarkdown,
     filterRootMessageCandidates,
