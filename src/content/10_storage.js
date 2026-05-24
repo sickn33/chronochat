@@ -1,4 +1,4 @@
-  (function (root) {
+(function (root) {
     const ns = root.__JTC__;
     const state = ns.state;
 
@@ -37,6 +37,45 @@
       return normalized;
     }
 
+    function normalizeMarkRecord(value) {
+      if (!value || typeof value !== "object") return null;
+      const record = {};
+      if (value.bookmark === true) record.bookmark = true;
+      if (value.decision === true) record.decision = true;
+      if (!record.bookmark && !record.decision) return null;
+      record.updatedAt =
+        typeof value.updatedAt === "string" && value.updatedAt
+          ? value.updatedAt
+          : new Date().toISOString();
+      return record;
+    }
+
+    function normalizeConversationMarks(rawMap) {
+      if (!rawMap || typeof rawMap !== "object") return {};
+      const normalized = {};
+      Object.entries(rawMap).forEach(([messageKey, rawRecord]) => {
+        if (!messageKey) return;
+        const record = normalizeMarkRecord(rawRecord);
+        if (record) {
+          normalized[String(messageKey)] = record;
+        }
+      });
+      return normalized;
+    }
+
+    function normalizeMarkStore(value) {
+      if (!value || typeof value !== "object") return {};
+      return Object.entries(value).reduce((acc, [conversationId, rawConversationMap]) => {
+        if (!conversationId) return acc;
+        const normalizedConversationId = String(conversationId);
+        const map = normalizeConversationMarks(rawConversationMap);
+        if (Object.keys(map).length > 0) {
+          acc[normalizedConversationId] = map;
+        }
+        return acc;
+      }, {});
+    }
+
     function readStorage(area, key) {
       return new Promise((resolve) => {
         try {
@@ -62,6 +101,10 @@
         sidebarWidth: state.ui.sidebarWidth,
         previewFontSize: state.ui.previewFontSize,
       };
+    }
+
+    function getCurrentMarksPayload() {
+      return normalizeConversationMarks(state.conversation.marks);
     }
 
     function getIndexedDb() {
@@ -172,7 +215,59 @@
         }
         state.runtime.savePrefsDebounced();
       },
+      async loadMarks(conversationId = state.conversation.id) {
+        const area = getChromeStorageArea();
+        if (!area || !conversationId) {
+          state.conversation.marks = {};
+          return {};
+        }
+        const key = ns.constants.storage.marksKey;
+        const result = await readStorage(area, key);
+        const store = normalizeMarkStore(result[key]);
+        state.runtime.markStore = store;
+        state.conversation.marks = normalizeConversationMarks(store[conversationId]);
+        return state.conversation.marks;
+      },
+      async saveMarks(
+        conversationId = state.conversation.id,
+        marksPayload = getCurrentMarksPayload(),
+      ) {
+        const area = getChromeStorageArea();
+        if (!area || !conversationId) return;
+        const store = normalizeMarkStore(state.runtime.markStore);
+        const marks = normalizeConversationMarks(marksPayload);
+        if (Object.keys(marks).length) {
+          store[conversationId] = marks;
+        } else {
+          delete store[conversationId];
+        }
+        state.runtime.markStore = store;
+        await writeStorage(area, {
+          [ns.constants.storage.marksKey]: store,
+        });
+      },
+      scheduleMarksSave(
+        conversationId = state.conversation.id,
+        marksPayload = getCurrentMarksPayload(),
+      ) {
+        state.runtime.pendingMarksSave = {
+          conversationId,
+          marks: normalizeConversationMarks(marksPayload),
+        };
+        if (!state.runtime.saveMarksDebounced) {
+          state.runtime.saveMarksDebounced = ns.utils.createDebouncer(
+            () => {
+              const pending = state.runtime.pendingMarksSave;
+              state.runtime.pendingMarksSave = null;
+              return ns.storage.saveMarks(pending?.conversationId, pending?.marks);
+            },
+            ns.config.storageSaveDelay,
+          );
+        }
+        state.runtime.saveMarksDebounced();
+      },
       buildPrefsPayload,
+      normalizeConversationMarks,
       getCachedAttachment: readCachedAttachment,
       cacheAttachment: writeCachedAttachment,
       getChromeStorageArea,

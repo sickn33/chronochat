@@ -152,6 +152,71 @@ async function main() {
       throw new Error("profile menu chrome was collected as a conversation message");
     }
 
+    const marksResult = await page.evaluate(async () => {
+      const bookmarkButton = document.querySelector(
+        '[data-message-index="0"] [data-mark-action="bookmark"]',
+      );
+      if (!bookmarkButton) {
+        return { ok: false, reason: "mark buttons missing" };
+      }
+      bookmarkButton.click();
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+      const decisionButton = document.querySelector(
+        '[data-message-index="1"] [data-mark-action="decision"]',
+      );
+      if (!decisionButton) {
+        return { ok: false, reason: "decision button missing after bookmark render" };
+      }
+      decisionButton.click();
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      document.querySelector('[data-filter="marked"]')?.click();
+      const visible = Array.from(
+        document.querySelectorAll("#message-list li[data-message-index]"),
+      ).map((node) => ({
+        index: node.dataset.messageIndex,
+        text: node.textContent || "",
+      }));
+      return {
+        ok: visible.length === 2,
+        visible,
+      };
+    });
+    if (!marksResult.ok) {
+      throw new Error(`mark filter check failed: ${JSON.stringify(marksResult)}`);
+    }
+
+    await page.reload();
+    await page.waitForSelector("#chatgpt-nav-toggle", { timeout: 15000 });
+    await page.click("#chatgpt-nav-toggle");
+    await page.waitForFunction(
+      () => document.getElementById("chatgpt-nav-sidebar")?.classList.contains("open"),
+      null,
+      { timeout: 15000 },
+    );
+    const persistedMarks = await page.evaluate(() => {
+      document.querySelector('[data-filter="marked"]')?.click();
+      const visible = Array.from(
+        document.querySelectorAll("#message-list li[data-message-index]"),
+      );
+      return {
+        visibleCount: visible.length,
+        bookmarkPressed: document
+          .querySelector('[data-message-index="0"] [data-mark-action="bookmark"]')
+          ?.getAttribute("aria-pressed"),
+        decisionPressed: document
+          .querySelector('[data-message-index="1"] [data-mark-action="decision"]')
+          ?.getAttribute("aria-pressed"),
+      };
+    });
+    if (
+      persistedMarks.visibleCount !== 2 ||
+      persistedMarks.bookmarkPressed !== "true" ||
+      persistedMarks.decisionPressed !== "true"
+    ) {
+      throw new Error(`mark persistence check failed: ${JSON.stringify(persistedMarks)}`);
+    }
+    await page.click('[data-filter="all"]');
+
     const jumpResult = await page.evaluate(async () => {
       const targetItem = Array.from(
         document.querySelectorAll("#message-list li[data-message-index]"),
@@ -277,7 +342,7 @@ async function main() {
     );
 
     console.log(
-      "SMOKE PASS: toggle injection, profile filtering, message jump, Files dropbox UI, sidebar open/close, and keyboard shortcuts",
+      "SMOKE PASS: toggle injection, profile filtering, marks persistence, message jump, Files dropbox UI, sidebar open/close, and keyboard shortcuts",
     );
   } finally {
     await context?.close();

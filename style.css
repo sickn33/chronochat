@@ -310,7 +310,8 @@
   color: var(--jtch-muted) !important;
 }
 
-		.jtch-filter,
+			.jtch-filter,
+			.jtch-mark-button,
 		.jtch-export-menu-button,
 		.jtch-export-button,
 		.jtch-preview-size-button,
@@ -329,8 +330,9 @@
     BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
-		.theme-light .jtch-filter,
-		.theme-light .jtch-export-menu-button,
+			.theme-light .jtch-filter,
+			.theme-light .jtch-mark-button,
+			.theme-light .jtch-export-menu-button,
 		.theme-light .jtch-export-button,
 		.theme-light .jtch-preview-size-button,
 		.theme-light .jtch-attachment-action,
@@ -339,8 +341,9 @@
   background: var(--jtch-panel) !important;
 }
 
-		.jtch-filter:hover,
-		.jtch-export-menu-button:hover,
+			.jtch-filter:hover,
+			.jtch-mark-button:hover,
+			.jtch-export-menu-button:hover,
 		.jtch-export-button:hover,
 		.jtch-preview-size-button:hover,
 		.jtch-attachment-action:hover,
@@ -350,8 +353,9 @@
   transform: translateY(-1px) !important;
 }
 
-		.theme-light .jtch-filter:hover,
-		.theme-light .jtch-export-menu-button:hover,
+			.theme-light .jtch-filter:hover,
+			.theme-light .jtch-mark-button:hover,
+			.theme-light .jtch-export-menu-button:hover,
 		.theme-light .jtch-export-button:hover,
 		.theme-light .jtch-preview-size-button:hover,
 		.theme-light .jtch-attachment-action:hover,
@@ -369,9 +373,10 @@
   line-height: 1 !important;
 }
 
-		#chatgpt-nav-toggle:focus-visible,
-		.jtch-filter:focus-visible,
-		.jtch-export-menu-button:focus-visible,
+			#chatgpt-nav-toggle:focus-visible,
+			.jtch-filter:focus-visible,
+			.jtch-mark-button:focus-visible,
+			.jtch-export-menu-button:focus-visible,
 		.jtch-export-button:focus-visible,
 			.jtch-preview-size-button:focus-visible,
 			.jtch-attachment-action:focus-visible,
@@ -382,9 +387,10 @@
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14) !important;
 }
 
-		#chatgpt-nav-toggle.theme-light:focus-visible,
-		.theme-light .jtch-filter:focus-visible,
-		.theme-light .jtch-export-menu-button:focus-visible,
+			#chatgpt-nav-toggle.theme-light:focus-visible,
+			.theme-light .jtch-filter:focus-visible,
+			.theme-light .jtch-mark-button:focus-visible,
+			.theme-light .jtch-export-menu-button:focus-visible,
 		.theme-light .jtch-export-button:focus-visible,
 		.theme-light .jtch-preview-size-button:focus-visible,
 		.theme-light .jtch-attachment-action:focus-visible,
@@ -394,11 +400,11 @@
   box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.12) !important;
 }
 
-	.jtch-filter-group {
-	  display: grid !important;
-	  grid-template-columns: repeat(3, 1fr) !important;
-	  gap: 10px !important;
-	}
+		.jtch-filter-group {
+			display: grid !important;
+			grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+		  gap: 10px !important;
+		}
 
 	.jtch-preview-controls {
 	  display: grid !important;
@@ -477,16 +483,16 @@
 		.jtch-filter.active,
 		.jtch-preview-size-button[aria-pressed="true"] {
 		  background: var(--jtch-accent-soft) !important;
-	  border-color: var(--jtch-accent-line) !important;
-	  color: var(--jtch-text) !important;
-	  font-weight: 700 !important;
+		  border-color: var(--jtch-accent-line) !important;
+		  color: var(--jtch-text) !important;
+		  font-weight: 700 !important;
 	}
 
 		.theme-light .jtch-filter.active,
 		.theme-light .jtch-preview-size-button[aria-pressed="true"] {
 		  background: rgba(15, 23, 42, 0.06) !important;
-	  border-color: rgba(15, 23, 42, 0.12) !important;
-	  color: #111827 !important;
+		  border-color: rgba(15, 23, 42, 0.12) !important;
+		  color: #111827 !important;
 }
 
 .jtch-search-row {
@@ -966,6 +972,60 @@
   font-weight: 650 !important;
   line-height: 1.2 !important;
   white-space: nowrap !important;
+  grid-row: 1 !important;
+  grid-column: 2 !important;
+}
+
+.jtch-item-actions {
+  align-items: center !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  justify-content: flex-end !important;
+  min-width: 0 !important;
+}
+
+.jtch-mark-button {
+  align-items: center !important;
+  background: var(--jtch-panel-strong) !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  font-size: 11px !important;
+  height: 24px !important;
+  justify-content: center !important;
+  min-width: 24px !important;
+  padding: 0 7px !important;
+}
+
+.jtch-mark-bookmark {
+  min-width: 26px !important;
+  padding: 0 !important;
+  width: 26px !important;
+}
+
+.jtch-mark-button.active,
+.jtch-mark-button[aria-pressed="true"] {
+  background: var(--jtch-accent-soft) !important;
+  border-color: var(--jtch-accent-line) !important;
+  color: var(--jtch-text) !important;
+  font-weight: 800 !important;
+}
+
+.jtch-mark-bookmark.active,
+.jtch-mark-bookmark[aria-pressed="true"] {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-color: rgba(59, 130, 246, 0.35) !important;
+  color: #1d4ed8 !important;
+}
+
+.jtch-mark-decision.active,
+.jtch-mark-decision[aria-pressed="true"] {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+  color: #b45309 !important;
 }
 
 .jtch-item-text strong,
@@ -1055,6 +1115,7 @@
 	  #chatgpt-nav-toggle,
 	  #chatgpt-nav-edge-toggle,
 		  .jtch-filter,
+		  .jtch-mark-button,
 		  .jtch-export-menu-button,
 		  .jtch-export-button,
 		  .jtch-preview-size-button,

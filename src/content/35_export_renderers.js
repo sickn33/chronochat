@@ -31,6 +31,20 @@
       .trim();
   }
 
+  function getMessageMarkLabel(message) {
+    if (typeof message?.mark === "string" && message.mark.trim()) {
+      return message.mark.trim();
+    }
+    const labels = [];
+    if (message?.bookmark === true || message?.marks?.bookmark === true) {
+      labels.push("Bookmark");
+    }
+    if (message?.decision === true || message?.marks?.decision === true) {
+      labels.push("Decision");
+    }
+    return labels.join(", ");
+  }
+
   const NOISE_LINE_PATTERNS = [
     /^chatgpt said:?$/i,
     /^generated (image|video|audio|file):/i,
@@ -696,6 +710,15 @@
           heading: HeadingLevel.HEADING_2,
         }),
       );
+      const markLabel = getMessageMarkLabel(message);
+      if (markLabel) {
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: `Mark: ${markLabel}`, bold: true })],
+            spacing: { after: 120 },
+          }),
+        );
+      }
       for (const block of message.blocks || []) {
         if (block.type === "image") {
           children.push(await createDocxImageParagraph(block));
@@ -1364,6 +1387,15 @@
 
     for (const message of payload.messages) {
       drawRoleHeader(message);
+      const markLabel = getMessageMarkLabel(message);
+      if (markLabel) {
+        drawWrappedText(`Mark: ${markLabel}`, {
+          font: fontBold,
+          size: 10,
+          color: rgb(0.33, 0.33, 0.33),
+          after: 6,
+        });
+      }
       const resolvedBlocks = resolvePdfBlocksForMessage(message.blocks || []);
       for (const block of resolvedBlocks) {
         await drawBlock(block);
@@ -1411,6 +1443,9 @@
       index: message.index,
       role: message.role,
       content,
+      bookmark: message.bookmark === true || message.marks?.bookmark === true,
+      decision: message.decision === true || message.marks?.decision === true,
+      mark: getMessageMarkLabel(message),
       blocks,
     };
   }

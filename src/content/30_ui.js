@@ -107,6 +107,7 @@
       { label: "All", value: "all" },
       { label: "You", value: "user" },
       { label: "AI", value: "assistant" },
+      { label: "Marked", value: "marked" },
     ].forEach((filter, index) => {
       filterGroup.appendChild(
         createButton({

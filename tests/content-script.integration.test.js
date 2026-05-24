@@ -161,8 +161,10 @@ describe("ChronoChat content script", () => {
     expect(document.getElementById("sidebar-close")).not.toBeNull();
     expect(document.getElementById("message-count")).not.toBeNull();
     expect(document.getElementById("filter-group")).not.toBeNull();
+    expect(document.querySelector('[data-filter="marked"]')).not.toBeNull();
     expect(document.getElementById("message-search")).not.toBeNull();
     expect(document.getElementById("message-list")).not.toBeNull();
+    expect(document.querySelectorAll("[data-mark-action]").length).toBe(6);
     expect(document.getElementById("export-group")?.tagName).toBe("DETAILS");
     expect(document.querySelector(".jtch-export-menu-button")?.textContent).toBe("Export");
     expect(document.querySelectorAll("[data-export-format]").length).toBe(5);
@@ -177,6 +179,60 @@ describe("ChronoChat content script", () => {
     expect(document.querySelector(".jtch-attachment-caret")).not.toBeNull();
     expect(document.getElementById("attachment-list")).not.toBeNull();
     });
+
+  test("persists bookmark and decision marks and combines marked filter with search", async () => {
+    const { ns, api, chrome } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>Alpha launch details</div></div>
+        <div data-message-author-role="assistant"><div>beta release decision</div></div>
+        <div data-message-author-role="user"><div>Gamma exploration note</div></div>
+      `),
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    document.querySelector('[data-message-index="0"] [data-mark-action="bookmark"]').click();
+    document.querySelector('[data-message-index="1"] [data-mark-action="decision"]').click();
+    await ns.storage.saveMarks();
+
+    const marks = chrome.__storageState.jtch_v1_marks["chat:test-chat"];
+    expect(Object.values(marks)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ bookmark: true }),
+        expect.objectContaining({ decision: true }),
+      ]),
+    );
+
+    document.querySelector('[data-filter="marked"]').click();
+    expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
+
+    const search = document.getElementById("message-search");
+    search.value = "beta";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(1);
+    expect(document.querySelector("#message-list li[data-message-index]")?.dataset.messageIndex).toBe("1");
+
+    const persistedState = JSON.parse(JSON.stringify(chrome.__storageState));
+    const reloaded = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>Alpha launch details</div></div>
+        <div data-message-author-role="assistant"><div>beta release decision</div></div>
+        <div data-message-author-role="user"><div>Gamma exploration note</div></div>
+      `),
+      storageSeed: persistedState,
+    });
+    reloaded.api.toggleSidebar(true);
+    await flushAsync();
+
+    document.querySelector('[data-filter="marked"]').click();
+    expect(document.querySelectorAll("#message-list li[data-message-index]").length).toBe(2);
+    expect(
+      document.querySelector('[data-message-index="0"] [data-mark-action="bookmark"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      document.querySelector('[data-message-index="1"] [data-mark-action="decision"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
 
   test("renders sidebar search on runtime data", async () => {
     const { api } = await loadChronoChat({

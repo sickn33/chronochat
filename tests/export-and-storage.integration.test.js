@@ -34,6 +34,45 @@ describe("ChronoChat export and storage", () => {
       expect(markdown).toContain(`=cmd|"danger"`);
   });
 
+  test("includes bookmark and decision metadata in exports", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: `
+        <header data-testid="conversation-header">
+          <div data-testid="conversation-actions">
+            <button type="button">Share</button>
+            <button type="button">Activity</button>
+          </div>
+        </header>
+        <main>
+          <div data-message-author-role="user"><div>Save this kickoff point</div></div>
+          <div data-message-author-role="assistant"><div>Final answer: use option B</div></div>
+        </main>
+      `,
+    });
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    ns.features.toggleMessageMark(0, "bookmark");
+    ns.features.toggleMessageMark(1, "decision");
+
+    const payload = ns.features.buildExportPayload();
+    expect(payload[0]).toEqual(expect.objectContaining({ bookmark: true, mark: "Bookmark" }));
+    expect(payload[1]).toEqual(expect.objectContaining({ decision: true, mark: "Decision" }));
+
+    const csv = ns.features.generateCSV(payload);
+    expect(csv).toContain("Index,Role,Bookmark,Decision,Content");
+    expect(csv).toContain('0,user,true,false,"Save this kickoff point"');
+    expect(csv).toContain('1,assistant,false,true,"Final answer: use option B"');
+
+    const markdown = ns.features.generateMarkdown(payload);
+    expect(markdown).toContain("Mark: Bookmark");
+    expect(markdown).toContain("Mark: Decision");
+
+    const html = ns.features.generatePrintableHTML(payload);
+    expect(html).toContain('class="message-mark">Mark: Bookmark</p>');
+    expect(html).toContain('class="message-mark">Mark: Decision</p>');
+  });
+
   test("preserves rendered Markdown structure in Markdown and PDF exports", async () => {
     const { ns, api } = await loadChronoChat({
       html: `

@@ -48,13 +48,15 @@
     hostUiOpenDelay: root.__CHRONOCHAT_TEST__ ? 0 : 160,
   };
 
-    ns.constants = {
-      storage: {
-        prefsKey: "jtch_v3_prefs",
-        attachmentDbName: "chronochat_attachments",
-        attachmentStoreName: "files",
-      },
-      filters: ["all", "user", "assistant"],
+  ns.constants = {
+    storage: {
+      prefsKey: "jtch_v3_prefs",
+      marksKey: "jtch_v1_marks",
+      attachmentDbName: "chronochat_attachments",
+      attachmentStoreName: "files",
+    },
+    filters: ["all", "user", "assistant", "marked"],
+    markTypes: ["bookmark", "decision"],
     primaryMessageSelectors: [
       "div[data-message-author-role]",
       "[data-testid*='conversation-turn']",
@@ -178,9 +180,11 @@
       messages: [],
       visibleIndices: [],
       attachments: [],
+      marks: {},
     },
     runtime: {
       initialized: false,
+      markStore: {},
         observer: null,
         observerRetryId: null,
         routeWatcherId: null,
@@ -191,6 +195,8 @@
         cleanupFns: [],
         refreshDebounced: null,
         savePrefsDebounced: null,
+        saveMarksDebounced: null,
+        pendingMarksSave: null,
         cachedAttachmentKeys: new Set(),
         domMessageCache: [],
         domHydrationInFlight: false,

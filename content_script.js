@@ -75,10 +75,12 @@
         ns.constants = {
           storage: {
             prefsKey: "jtch_v3_prefs",
+            marksKey: "jtch_v1_marks",
             attachmentDbName: "chronochat_attachments",
             attachmentStoreName: "files"
           },
-          filters: ["all", "user", "assistant"],
+          filters: ["all", "user", "assistant", "marked"],
+          markTypes: ["bookmark", "decision"],
           primaryMessageSelectors: [
             "div[data-message-author-role]",
             "[data-testid*='conversation-turn']",
@@ -192,10 +194,12 @@
             id: ns.utils.getConversationId(root.location?.href || "https://chatgpt.com/"),
             messages: [],
             visibleIndices: [],
-            attachments: []
+            attachments: [],
+            marks: {}
           },
           runtime: {
             initialized: false,
+            markStore: {},
             observer: null,
             observerRetryId: null,
             routeWatcherId: null,
@@ -206,6 +210,8 @@
             cleanupFns: [],
             refreshDebounced: null,
             savePrefsDebounced: null,
+            saveMarksDebounced: null,
+            pendingMarksSave: null,
             cachedAttachmentKeys: /* @__PURE__ */ new Set(),
             domMessageCache: [],
             domHydrationInFlight: false,
@@ -262,6 +268,39 @@
           }
           return normalized;
         }
+        function normalizeMarkRecord(value) {
+          if (!value || typeof value !== "object") return null;
+          const record = {};
+          if (value.bookmark === true) record.bookmark = true;
+          if (value.decision === true) record.decision = true;
+          if (!record.bookmark && !record.decision) return null;
+          record.updatedAt = typeof value.updatedAt === "string" && value.updatedAt ? value.updatedAt : (/* @__PURE__ */ new Date()).toISOString();
+          return record;
+        }
+        function normalizeConversationMarks(rawMap) {
+          if (!rawMap || typeof rawMap !== "object") return {};
+          const normalized = {};
+          Object.entries(rawMap).forEach(([messageKey, rawRecord]) => {
+            if (!messageKey) return;
+            const record = normalizeMarkRecord(rawRecord);
+            if (record) {
+              normalized[String(messageKey)] = record;
+            }
+          });
+          return normalized;
+        }
+        function normalizeMarkStore(value) {
+          if (!value || typeof value !== "object") return {};
+          return Object.entries(value).reduce((acc, [conversationId, rawConversationMap]) => {
+            if (!conversationId) return acc;
+            const normalizedConversationId = String(conversationId);
+            const map = normalizeConversationMarks(rawConversationMap);
+            if (Object.keys(map).length > 0) {
+              acc[normalizedConversationId] = map;
+            }
+            return acc;
+          }, {});
+        }
         function readStorage(area, key) {
           return new Promise((resolve) => {
             try {
@@ -285,6 +324,9 @@
             sidebarWidth: state.ui.sidebarWidth,
             previewFontSize: state.ui.previewFontSize
           };
+        }
+        function getCurrentMarksPayload() {
+          return normalizeConversationMarks(state.conversation.marks);
         }
         function getIndexedDb() {
           return root.indexedDB || null;
@@ -385,7 +427,53 @@
             }
             state.runtime.savePrefsDebounced();
           },
+          async loadMarks(conversationId = state.conversation.id) {
+            const area = getChromeStorageArea();
+            if (!area || !conversationId) {
+              state.conversation.marks = {};
+              return {};
+            }
+            const key = ns.constants.storage.marksKey;
+            const result = await readStorage(area, key);
+            const store = normalizeMarkStore(result[key]);
+            state.runtime.markStore = store;
+            state.conversation.marks = normalizeConversationMarks(store[conversationId]);
+            return state.conversation.marks;
+          },
+          async saveMarks(conversationId = state.conversation.id, marksPayload = getCurrentMarksPayload()) {
+            const area = getChromeStorageArea();
+            if (!area || !conversationId) return;
+            const store = normalizeMarkStore(state.runtime.markStore);
+            const marks = normalizeConversationMarks(marksPayload);
+            if (Object.keys(marks).length) {
+              store[conversationId] = marks;
+            } else {
+              delete store[conversationId];
+            }
+            state.runtime.markStore = store;
+            await writeStorage(area, {
+              [ns.constants.storage.marksKey]: store
+            });
+          },
+          scheduleMarksSave(conversationId = state.conversation.id, marksPayload = getCurrentMarksPayload()) {
+            state.runtime.pendingMarksSave = {
+              conversationId,
+              marks: normalizeConversationMarks(marksPayload)
+            };
+            if (!state.runtime.saveMarksDebounced) {
+              state.runtime.saveMarksDebounced = ns.utils.createDebouncer(
+                () => {
+                  const pending = state.runtime.pendingMarksSave;
+                  state.runtime.pendingMarksSave = null;
+                  return ns.storage.saveMarks(pending?.conversationId, pending?.marks);
+                },
+                ns.config.storageSaveDelay
+              );
+            }
+            state.runtime.saveMarksDebounced();
+          },
           buildPrefsPayload,
+          normalizeConversationMarks,
           getCachedAttachment: readCachedAttachment,
           cacheAttachment: writeCachedAttachment,
           getChromeStorageArea
@@ -2176,7 +2264,8 @@ ${nested}` : ""}`;
           [
             { label: "All", value: "all" },
             { label: "You", value: "user" },
-            { label: "AI", value: "assistant" }
+            { label: "AI", value: "assistant" },
+            { label: "Marked", value: "marked" }
           ].forEach((filter, index) => {
             filterGroup.appendChild(
               createButton({
@@ -47438,6 +47527,19 @@ ${nested}` : ""}`;
         function normalizeMultilineText(value) {
           return String(value || "").replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
         }
+        function getMessageMarkLabel(message) {
+          if (typeof message?.mark === "string" && message.mark.trim()) {
+            return message.mark.trim();
+          }
+          const labels = [];
+          if (message?.bookmark === true || message?.marks?.bookmark === true) {
+            labels.push("Bookmark");
+          }
+          if (message?.decision === true || message?.marks?.decision === true) {
+            labels.push("Decision");
+          }
+          return labels.join(", ");
+        }
         const NOISE_LINE_PATTERNS = [
           /^chatgpt said:?$/i,
           /^generated (image|video|audio|file):/i,
@@ -47984,6 +48086,15 @@ ${nested}` : ""}`;
                 heading: HeadingLevel.HEADING_2
               })
             );
+            const markLabel = getMessageMarkLabel(message);
+            if (markLabel) {
+              children.push(
+                new Paragraph({
+                  children: [new TextRun({ text: `Mark: ${markLabel}`, bold: true })],
+                  spacing: { after: 120 }
+                })
+              );
+            }
             for (const block of message.blocks || []) {
               if (block.type === "image") {
                 children.push(await createDocxImageParagraph(block));
@@ -48583,6 +48694,15 @@ ${nested}` : ""}`;
           drawWrappedText(`Message Count: ${payload.messageCount}`, { after: 10 });
           for (const message of payload.messages) {
             drawRoleHeader(message);
+            const markLabel = getMessageMarkLabel(message);
+            if (markLabel) {
+              drawWrappedText(`Mark: ${markLabel}`, {
+                font: fontBold,
+                size: 10,
+                color: rgb(0.33, 0.33, 0.33),
+                after: 6
+              });
+            }
             const resolvedBlocks = resolvePdfBlocksForMessage(message.blocks || []);
             for (const block of resolvedBlocks) {
               await drawBlock(block);
@@ -48625,6 +48745,9 @@ ${nested}` : ""}`;
             index: message.index,
             role: message.role,
             content,
+            bookmark: message.bookmark === true || message.marks?.bookmark === true,
+            decision: message.decision === true || message.marks?.decision === true,
+            mark: getMessageMarkLabel(message),
             blocks
           };
         }
@@ -48817,8 +48940,10 @@ ${nested}` : ""}`;
         function computeVisibleIndices() {
           const indices = [];
           state.ui.search.error = "";
+          syncMessageMarks();
+          const visibleRoleFilter = state.ui.currentFilter;
           state.conversation.messages.forEach((message) => {
-            const filterMatches = state.ui.currentFilter === "all" || state.ui.currentFilter === message.role;
+            const filterMatches = visibleRoleFilter === "all" || visibleRoleFilter === message.role || visibleRoleFilter === "marked" && hasMarks(message);
             if (filterMatches && doesMessageMatch(message)) {
               indices.push(message.index);
             }
@@ -48863,6 +48988,68 @@ ${nested}` : ""}`;
             item.classList.toggle("selected", selected);
             item.setAttribute("aria-selected", selected ? "true" : "false");
           });
+        }
+        function normalizeMarkRecord(value) {
+          if (!value || typeof value !== "object") return null;
+          const normalized = {};
+          if (value.bookmark === true) normalized.bookmark = true;
+          if (value.decision === true) normalized.decision = true;
+          if (!normalized.bookmark && !normalized.decision) return null;
+          normalized.updatedAt = typeof value.updatedAt === "string" && value.updatedAt ? value.updatedAt : (/* @__PURE__ */ new Date()).toISOString();
+          return normalized;
+        }
+        function hasMarks(message) {
+          const marks = normalizeMarkRecord(message?.marks);
+          return Boolean(marks?.bookmark || marks?.decision);
+        }
+        function getMarkLabels(message) {
+          const marks = normalizeMarkRecord(message?.marks) || {};
+          const labels = [];
+          if (marks.bookmark) labels.push("Bookmark");
+          if (marks.decision) labels.push("Decision");
+          return labels;
+        }
+        function hashText(value) {
+          let hash = 2166136261;
+          String(value || "").split("").forEach((character) => {
+            hash ^= character.charCodeAt(0);
+            hash = Math.imul(hash, 16777619);
+          });
+          return (hash >>> 0).toString(36);
+        }
+        function getNormalizedMessageText(message) {
+          const text = ns.dom.collapseText?.(message?.fullText || message?.preview || "");
+          return String(text || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+        }
+        function getMessageMarkBase(message) {
+          const role = String(message?.role || "unknown");
+          return `${role}|${hashText(getNormalizedMessageText(message))}`;
+        }
+        function getMessageMarksKey(message) {
+          if (message?.markKey) return String(message.markKey);
+          return `${getMessageMarkBase(message)}|0`;
+        }
+        function syncMessageMarks() {
+          if (!state.conversation?.marks) {
+            state.conversation.marks = {};
+          }
+          const occurrences = /* @__PURE__ */ new Map();
+          state.conversation.messages.forEach((message) => {
+            const base = getMessageMarkBase(message);
+            const occurrence = occurrences.get(base) || 0;
+            occurrences.set(base, occurrence + 1);
+            const key = `${base}|${occurrence}`;
+            message.markKey = key;
+            message.marks = normalizeMarkRecord(state.conversation.marks[key]);
+          });
+        }
+        function getExportMarkFields(message) {
+          const marks = normalizeMarkRecord(message?.marks || {}) || {};
+          return {
+            bookmark: marks.bookmark === true,
+            decision: marks.decision === true,
+            mark: getMarkLabels(message).join(", ")
+          };
         }
         function appendInlinePreview(parent, value) {
           const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
@@ -48995,8 +49182,40 @@ ${nested}` : ""}`;
           const meta = document.createElement("span");
           meta.className = "jtch-item-meta";
           meta.textContent = `#${message.index + 1}`;
+          const actions = document.createElement("span");
+          actions.className = "jtch-item-actions";
+          const marks = normalizeMarkRecord(message.marks) || {};
+          [
+            {
+              type: "bookmark",
+              label: "Bookmark",
+              text: marks.bookmark ? "\u2605" : "\u2606",
+              className: "jtch-mark-bookmark"
+            },
+            {
+              type: "decision",
+              label: "Decision",
+              text: "Decision",
+              className: "jtch-mark-decision"
+            }
+          ].forEach((mark) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = `jtch-mark-button ${mark.className}${marks[mark.type] ? " active" : ""}`;
+            button.dataset.markAction = mark.type;
+            button.dataset.messageIndex = String(message.index);
+            button.textContent = mark.text;
+            button.setAttribute(
+              "aria-label",
+              `${marks[mark.type] ? "Remove" : "Add"} ${mark.label} mark for message #${message.index + 1}`
+            );
+            button.setAttribute("aria-pressed", marks[mark.type] ? "true" : "false");
+            button.title = mark.label;
+            actions.appendChild(button);
+          });
           content.appendChild(text);
           content.appendChild(meta);
+          content.appendChild(actions);
           item.appendChild(badge);
           item.appendChild(content);
           return item;
@@ -49493,6 +49712,40 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
           state.ui.virtualization.visibleStart = null;
           renderFiltersAndMessages();
         }
+        function setMessageMark(messageIndex, markType, active) {
+          const message = state.conversation.messages[Number(messageIndex)];
+          if (!message || !ns.constants.markTypes.includes(markType)) return;
+          if (typeof syncMessageMarks === "function") {
+            syncMessageMarks();
+          }
+          const key = getMessageMarksKey(message);
+          if (!key) return;
+          const current = normalizeMarkRecord(state.conversation.marks?.[key]) || {};
+          const next = {
+            bookmark: current.bookmark,
+            decision: current.decision
+          };
+          next[markType] = Boolean(active);
+          if (next.bookmark || next.decision) {
+            const record = {
+              updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+            };
+            if (next.bookmark) record.bookmark = true;
+            if (next.decision) record.decision = true;
+            state.conversation.marks[key] = record;
+          } else {
+            delete state.conversation.marks[key];
+          }
+          message.marks = normalizeMarkRecord(state.conversation.marks[key]);
+          ns.storage.scheduleMarksSave?.(state.conversation.id, state.conversation.marks);
+          renderFiltersAndMessages();
+        }
+        function toggleMessageMark(messageIndex, markType) {
+          const message = state.conversation.messages[Number(messageIndex)];
+          if (!message || !ns.constants.markTypes.includes(markType)) return;
+          const nextActive = !Boolean(message.marks?.[markType]);
+          setMessageMark(message.index, markType, nextActive);
+        }
         function setSidebarWidth(width) {
           state.ui.sidebarWidth = clamp(
             Number(width) || ns.config.sidebarWidth,
@@ -49518,10 +49771,14 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
           );
         }
         function buildExportPayload() {
+          if (typeof syncMessageMarks === "function") {
+            syncMessageMarks();
+          }
           return state.conversation.messages.map((message) => ({
             index: message.index,
             role: message.role,
-            content: message.fullText
+            content: message.fullText,
+            ...typeof getExportMarkFields === "function" ? getExportMarkFields(message) : {}
           }));
         }
         async function prepareCompleteExportSnapshot() {
@@ -49559,6 +49816,16 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
             return `'${stringValue}`;
           }
           return stringValue;
+        }
+        function getExportMarkLabel(message) {
+          if (typeof message?.mark === "string" && message.mark.trim()) {
+            return message.mark.trim();
+          }
+          const labels = [];
+          if (message?.bookmark === true) labels.push("Bookmark");
+          if (message?.decision === true) labels.push("Decision");
+          if (labels.length) return labels.join(", ");
+          return getMarkLabels(message).join(", ");
         }
         function escapeHtml(value) {
           return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -49696,10 +49963,16 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
           );
         }
         function generateCSV(messages) {
-          const header = "Index,Role,Content\n";
+          const header = "Index,Role,Bookmark,Decision,Content\n";
           const rows = messages.map((message) => {
             const content = sanitizeCsvCell(message.content).replace(/"/g, '""');
-            return `${message.index},${message.role},"${content}"`;
+            return [
+              message.index,
+              message.role,
+              message.bookmark === true ? "true" : "false",
+              message.decision === true ? "true" : "false",
+              `"${content}"`
+            ].join(",");
           }).join("\n");
           return header + rows;
         }
@@ -49713,6 +49986,10 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
 `;
           messages.forEach((message) => {
             markdown += `### Message ${message.index} - ${message.role}
+`;
+            const mark = getExportMarkLabel(message);
+            if (mark) markdown += `Mark: ${mark}
+
 `;
             markdown += `${normalizeExportMarkdown(message.content)}
 
@@ -49742,6 +50019,7 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
             (message) => `
           <section class="message role-${escapeHtml(message.role)}">
             <h2>${escapeHtml(getPrintableRoleLabel(message.role))} <span>Message ${message.index}</span></h2>
+            ${getExportMarkLabel(message) ? `<p class="message-mark">Mark: ${escapeHtml(getExportMarkLabel(message))}</p>` : ""}
             <div class="message-body">${renderMarkdownToHTML(message.content)}</div>
           </section>
         `
@@ -50317,6 +50595,8 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
           scrollToMessage,
           focusSearch,
           setFilter,
+          setMessageMark,
+          toggleMessageMark,
           setSidebarWidth,
           setPreviewFontSize,
           getResponsiveMaxSidebarWidth,
@@ -50740,7 +51020,8 @@ ${text}`;
           return reindexMessages(domMessages);
         }
         function applyMessageSnapshot(domMessages) {
-          state.conversation.messages = chooseBestMessages(domMessages);
+          const messages = chooseBestMessages(domMessages);
+          state.conversation.messages = messages.map((message) => ({ ...message }));
           if (typeof ns.dom.collectConversationAttachments === "function") {
             state.conversation.attachments = ns.dom.collectConversationAttachments(
               state.conversation.messages,
@@ -51261,6 +51542,17 @@ ${getAuditTextKey(message?.fullText || message?.preview || "")}`;
           ns.features.clearSelection();
         }
         function handleListInteraction(event) {
+          const markButton = event.target.closest("[data-mark-action]");
+          if (markButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            const clickedMessageIndex = Number(
+              markButton.closest("li[data-message-index]")?.dataset.messageIndex
+            );
+            if (Number.isNaN(clickedMessageIndex)) return;
+            ns.features.toggleMessageMark(clickedMessageIndex, markButton.dataset.markAction);
+            return;
+          }
           const actionTarget = event.target.closest("[data-action='load-older']");
           if (actionTarget) {
             event.preventDefault();
@@ -51281,6 +51573,12 @@ ${getAuditTextKey(message?.fullText || message?.preview || "")}`;
         }
         function handleListKeydown(event) {
           if (event.key !== "Enter" && event.key !== " ") return;
+          const markButton = event.target.closest("[data-mark-action]");
+          if (markButton) {
+            event.preventDefault();
+            markButton.click();
+            return;
+          }
           const item = event.target.closest("li[data-message-index], li[data-action='load-older']");
           if (!item) return;
           event.preventDefault();
@@ -51552,6 +51850,11 @@ ${getAuditTextKey(message?.fullText || message?.preview || "")}`;
           state.runtime.domHydratedConversationId = null;
           state.runtime.pendingMessageJumpIndex = null;
           state.conversation.id = ns.utils.getConversationId(currentUrl);
+          ns.storage.loadMarks?.().then(() => {
+            if (state.ui.sidebarVisible) {
+              ns.features.renderFiltersAndMessages();
+            }
+          });
           resetPreviewRestoreState();
           state.ui.search = {
             ...state.ui.search,
@@ -51638,6 +51941,9 @@ ${getAuditTextKey(message?.fullText || message?.preview || "")}`;
           if (state.runtime.savePrefsDebounced?.cancel) {
             state.runtime.savePrefsDebounced.cancel();
           }
+          if (state.runtime.saveMarksDebounced?.cancel) {
+            state.runtime.saveMarksDebounced.cancel();
+          }
           if (state.runtime.observerRetryId) {
             root.clearTimeout(state.runtime.observerRetryId);
             state.runtime.observerRetryId = null;
@@ -51672,6 +51978,7 @@ ${getAuditTextKey(message?.fullText || message?.preview || "")}`;
           if (state.runtime.initialized) return;
           state.runtime.initialized = true;
           await ns.storage.load();
+          await ns.storage.loadMarks?.();
           ns.ui.ensureUiRoot();
           bindUi();
           ns.features.updateThemeUi();

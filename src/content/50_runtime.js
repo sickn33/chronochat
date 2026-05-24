@@ -477,7 +477,9 @@
   }
 
   function applyMessageSnapshot(domMessages) {
-    state.conversation.messages = chooseBestMessages(domMessages);
+    const messages = chooseBestMessages(domMessages);
+    state.conversation.messages = messages.map((message) => ({ ...message }));
+
     if (typeof ns.dom.collectConversationAttachments === "function") {
       state.conversation.attachments = ns.dom.collectConversationAttachments(
         state.conversation.messages,
@@ -1088,6 +1090,18 @@
   }
 
   function handleListInteraction(event) {
+    const markButton = event.target.closest("[data-mark-action]");
+    if (markButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const clickedMessageIndex = Number(
+        markButton.closest("li[data-message-index]")?.dataset.messageIndex,
+      );
+      if (Number.isNaN(clickedMessageIndex)) return;
+      ns.features.toggleMessageMark(clickedMessageIndex, markButton.dataset.markAction);
+      return;
+    }
+
     const actionTarget = event.target.closest("[data-action='load-older']");
     if (actionTarget) {
       event.preventDefault();
@@ -1110,6 +1124,13 @@
 
   function handleListKeydown(event) {
     if (event.key !== "Enter" && event.key !== " ") return;
+    const markButton = event.target.closest("[data-mark-action]");
+    if (markButton) {
+      event.preventDefault();
+      markButton.click();
+      return;
+    }
+
     const item = event.target.closest("li[data-message-index], li[data-action='load-older']");
     if (!item) return;
     event.preventDefault();
@@ -1416,6 +1437,11 @@
     state.runtime.domHydratedConversationId = null;
     state.runtime.pendingMessageJumpIndex = null;
     state.conversation.id = ns.utils.getConversationId(currentUrl);
+    ns.storage.loadMarks?.().then(() => {
+      if (state.ui.sidebarVisible) {
+        ns.features.renderFiltersAndMessages();
+      }
+    });
       resetPreviewRestoreState();
       state.ui.search = {
         ...state.ui.search,
@@ -1510,6 +1536,9 @@
       if (state.runtime.savePrefsDebounced?.cancel) {
         state.runtime.savePrefsDebounced.cancel();
       }
+      if (state.runtime.saveMarksDebounced?.cancel) {
+        state.runtime.saveMarksDebounced.cancel();
+      }
       if (state.runtime.observerRetryId) {
         root.clearTimeout(state.runtime.observerRetryId);
         state.runtime.observerRetryId = null;
@@ -1545,6 +1574,7 @@
     state.runtime.initialized = true;
 
     await ns.storage.load();
+    await ns.storage.loadMarks?.();
     ns.ui.ensureUiRoot();
     bindUi();
     ns.features.updateThemeUi();
