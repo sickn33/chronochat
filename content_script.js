@@ -505,6 +505,26 @@
             )
           );
         }
+        function isLikelySourceOrActionChrome(element) {
+          return Boolean(
+            element?.closest?.(
+              [
+                '[aria-label="Your message actions"]',
+                '[aria-label="Response actions"]',
+                '[aria-label*="source" i]',
+                '[data-testid*="source" i]',
+                '[class*="source" i]',
+                '[aria-label*="citation" i]',
+                '[data-testid*="citation" i]',
+                '[class*="citation" i]',
+                '[aria-label*="copy" i]',
+                '[aria-label*="share" i]',
+                '[aria-label*="feedback" i]',
+                '[aria-label*="thumb" i]'
+              ].join(", ")
+            )
+          );
+        }
         function getMediaRoleHint(element) {
           const image = element?.matches?.("img") ? element : element?.querySelector?.("img[alt], img[aria-label], img[title]");
           const label = collapseText(
@@ -514,8 +534,43 @@
           if (/uploaded image/i.test(label)) return "user";
           return "unknown";
         }
+        function isLikelyImageAttachment(image) {
+          if (!isVisibleElement(image) || isChronoChatNode(image)) return false;
+          if (image.closest?.('[role="group"][aria-label]')) return false;
+          if (isLikelySourceOrActionChrome(image)) return false;
+          if (getMediaRoleHint(image) !== "unknown") return true;
+          const label = collapseText(
+            image.getAttribute?.("alt") || image.getAttribute?.("aria-label") || image.getAttribute?.("title") || ""
+          );
+          const source = image.getAttribute?.("src") || image.currentSrc || "";
+          const hasImageName = /\.(png|jpe?g|gif|webp|svg|heic|avif)(?:$|[\s?#])/i.test(
+            `${label} ${source}`
+          );
+          if (!hasImageName) return false;
+          const rect = image.getBoundingClientRect?.();
+          if (!rect || !rect.width && !rect.height) {
+            return !image.closest?.("button, [role='button'], a, summary");
+          }
+          return rect.width >= 80 || rect.height >= 80;
+        }
+        function hasAttachmentOnlyMessageSignal(element) {
+          if (!element) return false;
+          if (element.querySelector?.(
+            [
+              '[data-testid*="file" i]',
+              '[class*="file-tile" i]',
+              'canvas[data-testid="data-grid-canvas"]',
+              'table[role="grid"]',
+              '[role="grid"]',
+              "a[href][download]"
+            ].join(", ")
+          )) {
+            return true;
+          }
+          return safeQuerySelectorAll("img[src]", element).some(isLikelyImageAttachment);
+        }
         function hasMeaningfulText(element) {
-          if (hasAttachmentSignal(element)) {
+          if (hasAttachmentOnlyMessageSignal(element)) {
             return true;
           }
           return collapseText(element?.textContent || "").length >= 8;
@@ -777,9 +832,7 @@
               push(extractSpreadsheetAttachment(artifact, messageIndex, role));
             }
           });
-          safeQuerySelectorAll("img[src]", node).filter(
-            (image) => isVisibleElement(image) && !isChronoChatNode(image) && !image.closest?.('[role="group"][aria-label]')
-          ).forEach((image) => push(extractImageAttachment(image, messageIndex, role)));
+          safeQuerySelectorAll("img[src]", node).filter(isLikelyImageAttachment).forEach((image) => push(extractImageAttachment(image, messageIndex, role)));
           safeQuerySelectorAll("a[href]", node).filter(
             (link) => !isChronoChatNode(link) && !link.closest?.('[role="group"][aria-label]')
           ).forEach((link) => push(extractLinkAttachment(link, messageIndex, role)));
@@ -1346,7 +1399,7 @@ ${nested}` : ""}`;
               previewText: text
             };
           }
-          if (hasAttachmentSignal(node)) {
+          if (hasAttachmentOnlyMessageSignal(node)) {
             return {
               fullText: "Message contains an image or attachment",
               previewText: "Message contains an image or attachment"
@@ -48934,11 +48987,18 @@ ${nested}` : ""}`;
           const badge = document.createElement("span");
           badge.className = "jtch-role-badge";
           badge.textContent = message.role === "assistant" ? "AI" : message.role === "user" ? "You" : "-";
+          const content = document.createElement("span");
+          content.className = "jtch-item-content";
           const text = document.createElement("span");
           text.className = "jtch-item-text";
           renderPreview(text, message.fullText || message.preview);
+          const meta = document.createElement("span");
+          meta.className = "jtch-item-meta";
+          meta.textContent = `#${message.index + 1}`;
+          content.appendChild(text);
+          content.appendChild(meta);
           item.appendChild(badge);
-          item.appendChild(text);
+          item.appendChild(content);
           return item;
         }
         function getAttachmentSourceLabel(attachment) {
@@ -49214,6 +49274,25 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
           if (Number.isFinite(targetIndex) && targetIndex === candidateIndex) return 58;
           return -1;
         }
+        function scoreMessageNode(target, node) {
+          if (!target || !node?.isConnected) return -1;
+          const targetText = normalizeMessageSearchText(getMessageText(target));
+          const nodeText = normalizeMessageSearchText(node.textContent || "");
+          if (!targetText || !nodeText) return -1;
+          if (targetText === nodeText) return 96;
+          const shorterLength = Math.min(targetText.length, nodeText.length);
+          if (shorterLength >= 24 && (targetText.includes(nodeText) || nodeText.includes(targetText))) {
+            return 88;
+          }
+          const targetTokens = new Set(targetText.split(" ").filter((token) => token.length >= 3));
+          const nodeTokens = nodeText.split(" ").filter((token) => token.length >= 3);
+          if (targetTokens.size && nodeTokens.length) {
+            const overlap = nodeTokens.filter((token) => targetTokens.has(token)).length;
+            const overlapRatio = overlap / Math.max(targetTokens.size, nodeTokens.length);
+            if (overlap >= 4 && overlapRatio >= 0.45) return 78;
+          }
+          return -1;
+        }
         function getScrollElement() {
           const candidates = [
             document.scrollingElement,
@@ -49288,7 +49367,7 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
           ]);
           await delay(80);
         }
-        function findLiveMessageNode(message, targetIndex = message?.index) {
+        function findLiveMessageCandidate(message, targetIndex = message?.index) {
           let best = null;
           let bestScore = -1;
           ns.dom.collectMessages().forEach((candidate, candidateIndex) => {
@@ -49298,7 +49377,19 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
               best = candidate;
             }
           });
-          return bestScore >= 72 ? best?.domNode : null;
+          return bestScore >= 72 ? { node: best?.domNode || null, score: bestScore } : null;
+        }
+        function findLiveMessageNode(message, targetIndex = message?.index) {
+          return findLiveMessageCandidate(message, targetIndex)?.node || null;
+        }
+        function resolveBestCurrentMessageNode(message, targetIndex = message?.index) {
+          const cachedScore = scoreMessageNode(message, message?.domNode);
+          const live = findLiveMessageCandidate(message, targetIndex);
+          if (live?.node && live.score > cachedScore) {
+            return live.node;
+          }
+          if (cachedScore >= 72) return message.domNode;
+          return live?.node || null;
         }
         function highlightAndScrollNode(node) {
           if (!node?.isConnected) return false;
@@ -49372,17 +49463,16 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
           }
           let message = state.conversation.messages[index];
           if (!message) return;
-          if (highlightAndScrollNode(message.domNode)) return;
-          let liveNode = findLiveMessageNode(message, index);
-          if (liveNode) {
-            message.domNode = liveNode;
-            highlightAndScrollNode(liveNode);
+          let resolvedNode = resolveBestCurrentMessageNode(message, index);
+          if (resolvedNode) {
+            message.domNode = resolvedNode;
+            highlightAndScrollNode(resolvedNode);
             return;
           }
           await waitForHydrationIdle();
           if (state.runtime.messageJumpToken !== jumpToken) return;
           message = state.conversation.messages[index] || message;
-          liveNode = findLiveMessageNode(message, index) || await findVirtualizedMessageNode(message, index);
+          let liveNode = findLiveMessageNode(message, index) || await findVirtualizedMessageNode(message, index);
           if (state.runtime.messageJumpToken !== jumpToken) return;
           if (liveNode) {
             message = state.conversation.messages[index] || message;
@@ -50368,7 +50458,8 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
           }
           const currentContentLeft = getChatContentLeft(container, rect.left);
           const defaultWidth = ns.config.sidebarWidth;
-          const widthTrigger = Math.max(defaultWidth + 40, currentContentLeft - leftOffset - 24);
+          const triggerContentLeft = state.runtime.hostStyleState?.element === container ? state.runtime.hostStyleState.contentLeft || currentContentLeft : currentContentLeft;
+          const widthTrigger = Math.max(defaultWidth + 40, triggerContentLeft - leftOffset - 8);
           if (sidebarWidth <= widthTrigger) {
             restoreHostInlineStyles();
             return;
@@ -50472,6 +50563,62 @@ ${normalizeMessageSearchText(getMessageText(message))}`;
             index
           }));
         }
+        function hasResponseActions(node) {
+          return Boolean(
+            node?.querySelector?.('[aria-label="Response actions"], [aria-label*="response actions" i]')
+          );
+        }
+        function hasThoughtControl(node) {
+          return Array.from(
+            node?.querySelectorAll?.("button, summary, [role='button']") || []
+          ).some((element) => /thought for|thinking/i.test(ns.dom.collapseText?.(element.textContent || "")));
+        }
+        function isThoughtControl(element) {
+          return /thought for|thinking/i.test(ns.dom.collapseText?.(element?.textContent || ""));
+        }
+        function isNodeAfter(left, right) {
+          if (!left || !right || left === right) return false;
+          return Boolean(left.compareDocumentPosition?.(right) & Node.DOCUMENT_POSITION_FOLLOWING);
+        }
+        function hasThoughtControlBetween(previousNode, currentNode) {
+          if (!previousNode?.isConnected || !currentNode?.isConnected) return false;
+          if (!isNodeAfter(previousNode, currentNode)) return false;
+          const rootNode = previousNode.ownerDocument?.body || document.body;
+          return Array.from(
+            rootNode.querySelectorAll?.("button, summary, [role='button']") || []
+          ).some(
+            (element) => isThoughtControl(element) && isNodeAfter(previousNode, element) && isNodeAfter(element, currentNode)
+          );
+        }
+        function isLikelyAssistantPreface(message) {
+          const text = ns.dom.collapseText?.(message?.fullText || message?.preview || "") || "";
+          if (text.length < 12 || text.length > 420) return false;
+          return /(\bverific|controll|corregg|ti rispondo|rispondo sul|procedo|do un'occhiata|I['’]ll|I will|I['’]m going|let me|checking|I can take a look)/i.test(
+            text
+          );
+        }
+        function shouldMergeAssistantThoughtFragment(previous, current) {
+          return Boolean(
+            previous?.role === "assistant" && current?.role === "assistant" && previous.domNode?.isConnected && current.domNode?.isConnected && !hasResponseActions(previous.domNode) && (hasThoughtControl(current.domNode) || hasThoughtControlBetween(previous.domNode, current.domNode)) && isLikelyAssistantPreface(previous)
+          );
+        }
+        function mergeAssistantThoughtFragments(messages) {
+          return messages.reduce((merged, message) => {
+            const previous = merged[merged.length - 1];
+            if (shouldMergeAssistantThoughtFragment(previous, message)) {
+              const fullText = [previous.fullText || previous.preview, message.fullText || message.preview].filter(Boolean).join("\n\n");
+              merged[merged.length - 1] = {
+                ...previous,
+                preview: ns.dom.collapseText?.(fullText) || fullText,
+                fullText,
+                attachments: [...previous.attachments || [], ...message.attachments || []]
+              };
+              return merged;
+            }
+            merged.push(message);
+            return merged;
+          }, []);
+        }
         function getMessageCacheKey(message) {
           const text = ns.dom.collapseText?.(message?.fullText || message?.preview || "");
           return `${message?.role || "unknown"}
@@ -50501,14 +50648,18 @@ ${text}`;
           return shifted;
         }
         function mergeDomMessages(domMessages) {
-          const incoming = Array.isArray(domMessages) ? domMessages : [];
-          const cached = Array.isArray(state.runtime.domMessageCache) ? state.runtime.domMessageCache.map(cloneCachedMessage) : [];
+          const incoming = mergeAssistantThoughtFragments(
+            Array.isArray(domMessages) ? domMessages : []
+          );
+          const cached = Array.isArray(state.runtime.domMessageCache) ? mergeAssistantThoughtFragments(state.runtime.domMessageCache.map(cloneCachedMessage)) : [];
           if (!incoming.length) {
-            state.runtime.domMessageCache = cached;
+            state.runtime.domMessageCache = reindexMessages(cached);
             return cached;
           }
           if (!cached.length) {
-            state.runtime.domMessageCache = reindexMessages(incoming.map(cloneCachedMessage));
+            state.runtime.domMessageCache = reindexMessages(
+              mergeAssistantThoughtFragments(incoming.map(cloneCachedMessage))
+            );
             return state.runtime.domMessageCache;
           }
           const result = [];
@@ -50558,7 +50709,9 @@ ${text}`;
             }
           });
           insertPending();
-          state.runtime.domMessageCache = reindexMessages(result.map(cloneCachedMessage));
+          state.runtime.domMessageCache = reindexMessages(
+            mergeAssistantThoughtFragments(result.map(cloneCachedMessage))
+          );
           return state.runtime.domMessageCache;
         }
         function chooseBestMessages(domMessages) {

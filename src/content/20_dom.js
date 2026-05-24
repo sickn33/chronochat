@@ -149,6 +149,27 @@
     );
   }
 
+  function isLikelySourceOrActionChrome(element) {
+    return Boolean(
+      element?.closest?.(
+        [
+          '[aria-label="Your message actions"]',
+          '[aria-label="Response actions"]',
+          '[aria-label*="source" i]',
+          '[data-testid*="source" i]',
+          '[class*="source" i]',
+          '[aria-label*="citation" i]',
+          '[data-testid*="citation" i]',
+          '[class*="citation" i]',
+          '[aria-label*="copy" i]',
+          '[aria-label*="share" i]',
+          '[aria-label*="feedback" i]',
+          '[aria-label*="thumb" i]',
+        ].join(", "),
+      ),
+    );
+  }
+
   function getMediaRoleHint(element) {
     const image = element?.matches?.("img")
       ? element
@@ -165,8 +186,52 @@
     return "unknown";
   }
 
+  function isLikelyImageAttachment(image) {
+    if (!isVisibleElement(image) || isChronoChatNode(image)) return false;
+    if (image.closest?.('[role="group"][aria-label]')) return false;
+    if (isLikelySourceOrActionChrome(image)) return false;
+    if (getMediaRoleHint(image) !== "unknown") return true;
+
+    const label = collapseText(
+      image.getAttribute?.("alt") ||
+        image.getAttribute?.("aria-label") ||
+        image.getAttribute?.("title") ||
+        "",
+    );
+    const source = image.getAttribute?.("src") || image.currentSrc || "";
+    const hasImageName = /\.(png|jpe?g|gif|webp|svg|heic|avif)(?:$|[\s?#])/i.test(
+      `${label} ${source}`,
+    );
+    if (!hasImageName) return false;
+
+    const rect = image.getBoundingClientRect?.();
+    if (!rect || (!rect.width && !rect.height)) {
+      return !image.closest?.("button, [role='button'], a, summary");
+    }
+    return rect.width >= 80 || rect.height >= 80;
+  }
+
+  function hasAttachmentOnlyMessageSignal(element) {
+    if (!element) return false;
+    if (
+      element.querySelector?.(
+        [
+          '[data-testid*="file" i]',
+          '[class*="file-tile" i]',
+          'canvas[data-testid="data-grid-canvas"]',
+          'table[role="grid"]',
+          '[role="grid"]',
+          "a[href][download]",
+        ].join(", "),
+      )
+    ) {
+      return true;
+    }
+    return safeQuerySelectorAll("img[src]", element).some(isLikelyImageAttachment);
+  }
+
   function hasMeaningfulText(element) {
-    if (hasAttachmentSignal(element)) {
+    if (hasAttachmentOnlyMessageSignal(element)) {
       return true;
     }
     return collapseText(element?.textContent || "").length >= 8;
@@ -502,12 +567,7 @@
     });
 
     safeQuerySelectorAll("img[src]", node)
-      .filter(
-        (image) =>
-          isVisibleElement(image) &&
-          !isChronoChatNode(image) &&
-          !image.closest?.('[role="group"][aria-label]'),
-      )
+      .filter(isLikelyImageAttachment)
       .forEach((image) => push(extractImageAttachment(image, messageIndex, role)));
 
     safeQuerySelectorAll("a[href]", node)
@@ -1279,7 +1339,7 @@
       };
     }
 
-    if (hasAttachmentSignal(node)) {
+    if (hasAttachmentOnlyMessageSignal(node)) {
       return {
         fullText: "Message contains an image or attachment",
         previewText: "Message contains an image or attachment",

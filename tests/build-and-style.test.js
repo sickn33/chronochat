@@ -112,4 +112,19 @@ describe("Build and style contracts", () => {
       ).toBe(true);
     });
   });
+
+  test("manifest declares permissions required by extension APIs", () => {
+    const root = process.cwd();
+    const manifest = JSON.parse(
+      fs.readFileSync(path.resolve(root, "manifest.json"), "utf8"),
+    );
+    const contentSource = fs.readFileSync(
+      path.resolve(root, "src", "content", "10_storage.js"),
+      "utf8",
+    );
+
+    if (contentSource.includes("chrome.storage.local")) {
+      expect(manifest.permissions || []).toContain("storage");
+    }
+  });
 });

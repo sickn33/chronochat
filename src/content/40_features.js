@@ -420,12 +420,21 @@
     badge.textContent =
       message.role === "assistant" ? "AI" : message.role === "user" ? "You" : "-";
 
+    const content = document.createElement("span");
+    content.className = "jtch-item-content";
+
     const text = document.createElement("span");
     text.className = "jtch-item-text";
     renderPreview(text, message.fullText || message.preview);
 
+    const meta = document.createElement("span");
+    meta.className = "jtch-item-meta";
+    meta.textContent = `#${message.index + 1}`;
+
+    content.appendChild(text);
+    content.appendChild(meta);
     item.appendChild(badge);
-    item.appendChild(text);
+    item.appendChild(content);
     return item;
   }
 
@@ -768,6 +777,32 @@
     return -1;
   }
 
+  function scoreMessageNode(target, node) {
+    if (!target || !node?.isConnected) return -1;
+    const targetText = normalizeMessageSearchText(getMessageText(target));
+    const nodeText = normalizeMessageSearchText(node.textContent || "");
+    if (!targetText || !nodeText) return -1;
+    if (targetText === nodeText) return 96;
+
+    const shorterLength = Math.min(targetText.length, nodeText.length);
+    if (
+      shorterLength >= 24 &&
+      (targetText.includes(nodeText) || nodeText.includes(targetText))
+    ) {
+      return 88;
+    }
+
+    const targetTokens = new Set(targetText.split(" ").filter((token) => token.length >= 3));
+    const nodeTokens = nodeText.split(" ").filter((token) => token.length >= 3);
+    if (targetTokens.size && nodeTokens.length) {
+      const overlap = nodeTokens.filter((token) => targetTokens.has(token)).length;
+      const overlapRatio = overlap / Math.max(targetTokens.size, nodeTokens.length);
+      if (overlap >= 4 && overlapRatio >= 0.45) return 78;
+    }
+
+    return -1;
+  }
+
   function getScrollElement() {
     const candidates = [
       document.scrollingElement,
@@ -846,7 +881,7 @@
     await delay(80);
   }
 
-  function findLiveMessageNode(message, targetIndex = message?.index) {
+  function findLiveMessageCandidate(message, targetIndex = message?.index) {
     let best = null;
     let bestScore = -1;
     ns.dom.collectMessages().forEach((candidate, candidateIndex) => {
@@ -856,7 +891,21 @@
         best = candidate;
       }
     });
-    return bestScore >= 72 ? best?.domNode : null;
+    return bestScore >= 72 ? { node: best?.domNode || null, score: bestScore } : null;
+  }
+
+  function findLiveMessageNode(message, targetIndex = message?.index) {
+    return findLiveMessageCandidate(message, targetIndex)?.node || null;
+  }
+
+  function resolveBestCurrentMessageNode(message, targetIndex = message?.index) {
+    const cachedScore = scoreMessageNode(message, message?.domNode);
+    const live = findLiveMessageCandidate(message, targetIndex);
+    if (live?.node && live.score > cachedScore) {
+      return live.node;
+    }
+    if (cachedScore >= 72) return message.domNode;
+    return live?.node || null;
   }
 
   function highlightAndScrollNode(node) {
@@ -940,12 +989,10 @@
 
     let message = state.conversation.messages[index];
     if (!message) return;
-    if (highlightAndScrollNode(message.domNode)) return;
-
-    let liveNode = findLiveMessageNode(message, index);
-    if (liveNode) {
-      message.domNode = liveNode;
-      highlightAndScrollNode(liveNode);
+    let resolvedNode = resolveBestCurrentMessageNode(message, index);
+    if (resolvedNode) {
+      message.domNode = resolvedNode;
+      highlightAndScrollNode(resolvedNode);
       return;
     }
 
@@ -953,7 +1000,7 @@
     if (state.runtime.messageJumpToken !== jumpToken) return;
 
     message = state.conversation.messages[index] || message;
-    liveNode = findLiveMessageNode(message, index) || (await findVirtualizedMessageNode(message, index));
+    let liveNode = findLiveMessageNode(message, index) || (await findVirtualizedMessageNode(message, index));
     if (state.runtime.messageJumpToken !== jumpToken) return;
     if (liveNode) {
       message = state.conversation.messages[index] || message;

@@ -765,6 +765,56 @@ describe("ChronoChat content script", () => {
     );
   });
 
+  test("does not turn source or action icon chrome into attachment-only messages", async () => {
+    const { ns, api } = await loadChronoChat({
+      html: createHostShell(
+        `
+          <div data-message-author-role="user"><div>check this risky guide</div></div>
+          <div data-message-author-role="assistant">
+            <div class="markdown">
+              <p>Official sources say the account risk is real.</p>
+              <p>If needed, use this safer warning:</p>
+              <blockquote class="relative border-0 py-2 ps-6">
+                <p>
+                  Questa procedura circola online come workaround per pagare
+                  ChatGPT Plus tramite Apple ID estero, ma comporta rischi
+                  concreti e la via piu sicura resta abbonarsi tramite i
+                  canali ufficiali disponibili nel proprio Paese.
+                </p>
+              </blockquote>
+            </div>
+            <div role="group" aria-label="Response actions">
+              <button type="button" aria-label="Copy response"></button>
+              <button type="button" aria-label="Sources">
+                <span>Sources</span>
+              </button>
+            </div>
+          </div>
+        `,
+        `
+          <div class="message relative py-2 ps-6" aria-label="Sources">
+            <button type="button" aria-label="Share source">
+              <img alt="Apple" src="https://chatgpt.com/assets/apple.png" />
+            </button>
+          </div>
+        `,
+      ),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    expect(ns.state.conversation.messages).toHaveLength(2);
+    expect(ns.state.conversation.messages[1].fullText).toContain(
+      "> Questa procedura circola online",
+    );
+    expect(ns.state.conversation.attachments).toHaveLength(0);
+    expect(document.getElementById("message-list").textContent).not.toContain(
+      "Message contains an image or attachment",
+    );
+    expect(document.getElementById("attachment-types").textContent).toBe("No files");
+  });
+
   test("save does not open a preview when no direct download action is exposed", async () => {
     const previewClick = jest.fn();
     const { ns, api } = await loadChronoChat({
@@ -1040,6 +1090,11 @@ describe("ChronoChat content script", () => {
         left: 470,
       });
 
+      api.toggleSidebar(true);
+      await flushAsync();
+      expect(chatContainer.style.marginLeft).toBe("");
+
+      ns.features.setSidebarWidth(455);
       api.toggleSidebar(true);
       await flushAsync();
       expect(chatContainer.style.marginLeft).toBe("");
@@ -2007,6 +2062,65 @@ describe("ChronoChat content script", () => {
     );
   });
 
+  test("clicking a sidebar message resolves live DOM before trusting stale connected nodes", async () => {
+    const staleNode = document.createElement("div");
+    staleNode.textContent = "wrong connected assistant target";
+    document.body.appendChild(staleNode);
+
+    const { api } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>first user</div></div>
+        <div data-message-author-role="assistant"><div>correct assistant target</div></div>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    api.ns.state.conversation.messages[1].domNode = staleNode;
+    const item = document.querySelector('#message-list li[data-message-index="1"]');
+    item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(api.ns.state.conversation.messages[1].domNode).not.toBe(staleNode);
+    expect(api.ns.state.conversation.messages[1].domNode.textContent).toContain(
+      "correct assistant target",
+    );
+    expect(staleNode.classList.contains("jtch-target-highlight")).toBe(false);
+    expect(api.ns.state.conversation.messages[1].domNode.classList).toContain(
+      "jtch-target-highlight",
+    );
+
+    staleNode.remove();
+  });
+
+  test("clicking a merged assistant message keeps the cached turn anchor on tied partial matches", async () => {
+    const { api, ns } = await loadChronoChat({
+      html: createHostShell(`
+        <div data-message-author-role="user"><div>first user</div></div>
+        <div data-message-author-role="assistant">
+          <div>Nicco, ti correggo soprattutto la logica dei selettori.</div>
+        </div>
+        <button type="button">Thought for 39s</button>
+        <div data-message-author-role="assistant">
+          <div>Nicco, il problema principale è qui: form width seventy percent.</div>
+        </div>
+      `),
+    });
+
+    api.toggleSidebar(true);
+    await flushAsync();
+
+    const cachedAnchor = ns.state.conversation.messages[1].domNode;
+    expect(ns.state.conversation.messages).toHaveLength(2);
+
+    document
+      .querySelector('#message-list li[data-message-index="1"]')
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(ns.state.conversation.messages[1].domNode).toBe(cachedAnchor);
+    expect(cachedAnchor.classList).toContain("jtch-target-highlight");
+  });
+
   test("clicking a backend-only sidebar message resolves it by virtualized order", async () => {
     const originalFetch = global.fetch;
     global.fetch = jest.fn(async () => ({ ok: false, status: 404 }));
@@ -2820,6 +2934,84 @@ describe("ChronoChat content script", () => {
       expect(items[2].dataset.role).toBe("assistant");
       expect(items[2].textContent).toContain("perché nel workbook");
       expect(items[2].textContent).not.toContain("Response actions");
+    });
+
+    test("merges live ChatGPT assistant preface with the post-thinking answer", async () => {
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user">
+            <div>Here is the English translation: Turkey Apple ID subscription.</div>
+            <div aria-label="Your message actions"><button>Copy message</button></div>
+          </div>
+          <div data-message-author-role="assistant">
+            <div>
+              Nicco, ti rispondo sul senso e sui rischi del testo: sembra una guida
+              per aggirare prezzi/regione usando Apple ID turco. Verifico solo i
+              riferimenti ufficiali utili.
+            </div>
+          </div>
+          <button type="button">Thought for 20s</button>
+          <section data-message-author-role="assistant">
+            <div class="markdown">
+              <p>
+                Nicco, questo testo è chiaro come traduzione, però il contenuto è
+                molto rischioso.
+              </p>
+              <p>Le cose vere nel testo sono queste: gli abbonamenti passano da Apple.</p>
+            </div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </section>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      expect(ns.state.conversation.messages).toHaveLength(2);
+      expect(ns.state.conversation.messages[1].role).toBe("assistant");
+      expect(ns.state.conversation.messages[1].fullText).toContain("ti rispondo sul senso");
+      expect(ns.state.conversation.messages[1].fullText).toContain("questo testo è chiaro");
+      expect(document.querySelectorAll("#message-list li[data-message-index]")).toHaveLength(2);
+      expect(document.getElementById("message-count").textContent).toBe("2");
+    });
+
+    test("merges assistant correction preface with code-heavy post-thinking answer", async () => {
+      const { api, ns } = await loadChronoChat({
+        html: createHostShell(`
+          <div data-message-author-role="user">
+            <div>sto utilizzando questo codice per aumentare la larghezza</div>
+            <div aria-label="Your message actions"><button>Copy message</button></div>
+          </div>
+          <div data-message-author-role="assistant">
+            <div>
+              Nicco, ti correggo soprattutto la logica dei selettori: nel tuo
+              codice il composer viene ristretto al 70% e i max-width non
+              allargano davvero i contenitori.
+            </div>
+          </div>
+          <button type="button">Thought for 39s</button>
+          <section data-message-author-role="assistant">
+            <div class="markdown">
+              <p>Nicco, il problema principale è qui:</p>
+              <pre><code>form[data-type="unified-composer"] {
+  width: 70% !important;
+}</code></pre>
+              <p>Stai allargando il wrapper, ma poi restringi l'input al 70%.</p>
+            </div>
+            <div aria-label="Response actions"><button>Copy response</button></div>
+          </section>
+        `),
+      });
+
+      api.toggleSidebar(true);
+      await flushAsync();
+
+      expect(ns.state.conversation.messages).toHaveLength(2);
+      expect(ns.state.conversation.messages[1].fullText).toContain("ti correggo");
+      expect(ns.state.conversation.messages[1].fullText).toContain("problema principale");
+      expect(ns.state.conversation.messages[1].fullText).toContain("form[data-type");
+      expect(document.querySelectorAll("#message-list li[data-message-index]")).toHaveLength(2);
+      expect(document.getElementById("message-count").textContent).toBe("2");
     });
 
     test("recovers ChatGPT assistant content when role markers are empty", async () => {

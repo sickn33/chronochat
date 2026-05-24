@@ -134,7 +134,11 @@
 
       const currentContentLeft = getChatContentLeft(container, rect.left);
       const defaultWidth = ns.config.sidebarWidth;
-      const widthTrigger = Math.max(defaultWidth + 40, currentContentLeft - leftOffset - 24);
+      const triggerContentLeft =
+        state.runtime.hostStyleState?.element === container
+          ? state.runtime.hostStyleState.contentLeft || currentContentLeft
+          : currentContentLeft;
+      const widthTrigger = Math.max(defaultWidth + 40, triggerContentLeft - leftOffset - 8);
       if (sidebarWidth <= widthTrigger) {
         restoreHostInlineStyles();
         return;
@@ -257,6 +261,82 @@
     }));
   }
 
+  function hasResponseActions(node) {
+    return Boolean(
+      node?.querySelector?.('[aria-label="Response actions"], [aria-label*="response actions" i]'),
+    );
+  }
+
+  function hasThoughtControl(node) {
+    return Array.from(
+      node?.querySelectorAll?.("button, summary, [role='button']") || [],
+    ).some((element) => /thought for|thinking/i.test(ns.dom.collapseText?.(element.textContent || "")));
+  }
+
+  function isThoughtControl(element) {
+    return /thought for|thinking/i.test(ns.dom.collapseText?.(element?.textContent || ""));
+  }
+
+  function isNodeAfter(left, right) {
+    if (!left || !right || left === right) return false;
+    return Boolean(left.compareDocumentPosition?.(right) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  function hasThoughtControlBetween(previousNode, currentNode) {
+    if (!previousNode?.isConnected || !currentNode?.isConnected) return false;
+    if (!isNodeAfter(previousNode, currentNode)) return false;
+    const rootNode = previousNode.ownerDocument?.body || document.body;
+    return Array.from(
+      rootNode.querySelectorAll?.("button, summary, [role='button']") || [],
+    ).some(
+      (element) =>
+        isThoughtControl(element) &&
+        isNodeAfter(previousNode, element) &&
+        isNodeAfter(element, currentNode),
+    );
+  }
+
+  function isLikelyAssistantPreface(message) {
+    const text = ns.dom.collapseText?.(message?.fullText || message?.preview || "") || "";
+    if (text.length < 12 || text.length > 420) return false;
+    return /(\bverific|controll|corregg|ti rispondo|rispondo sul|procedo|do un'occhiata|I['’]ll|I will|I['’]m going|let me|checking|I can take a look)/i.test(
+      text,
+    );
+  }
+
+  function shouldMergeAssistantThoughtFragment(previous, current) {
+    return Boolean(
+      previous?.role === "assistant" &&
+        current?.role === "assistant" &&
+        previous.domNode?.isConnected &&
+        current.domNode?.isConnected &&
+        !hasResponseActions(previous.domNode) &&
+        (hasThoughtControl(current.domNode) ||
+          hasThoughtControlBetween(previous.domNode, current.domNode)) &&
+        isLikelyAssistantPreface(previous),
+    );
+  }
+
+  function mergeAssistantThoughtFragments(messages) {
+    return messages.reduce((merged, message) => {
+      const previous = merged[merged.length - 1];
+      if (shouldMergeAssistantThoughtFragment(previous, message)) {
+        const fullText = [previous.fullText || previous.preview, message.fullText || message.preview]
+          .filter(Boolean)
+          .join("\n\n");
+        merged[merged.length - 1] = {
+          ...previous,
+          preview: ns.dom.collapseText?.(fullText) || fullText,
+          fullText,
+          attachments: [...(previous.attachments || []), ...(message.attachments || [])],
+        };
+        return merged;
+      }
+      merged.push(message);
+      return merged;
+    }, []);
+  }
+
   function getMessageCacheKey(message) {
     const text = ns.dom.collapseText?.(message?.fullText || message?.preview || "");
     return `${message?.role || "unknown"}\n${text}`;
@@ -289,16 +369,20 @@
   }
 
   function mergeDomMessages(domMessages) {
-    const incoming = Array.isArray(domMessages) ? domMessages : [];
+    const incoming = mergeAssistantThoughtFragments(
+      Array.isArray(domMessages) ? domMessages : [],
+    );
     const cached = Array.isArray(state.runtime.domMessageCache)
-      ? state.runtime.domMessageCache.map(cloneCachedMessage)
+      ? mergeAssistantThoughtFragments(state.runtime.domMessageCache.map(cloneCachedMessage))
       : [];
     if (!incoming.length) {
-      state.runtime.domMessageCache = cached;
+      state.runtime.domMessageCache = reindexMessages(cached);
       return cached;
     }
     if (!cached.length) {
-      state.runtime.domMessageCache = reindexMessages(incoming.map(cloneCachedMessage));
+      state.runtime.domMessageCache = reindexMessages(
+        mergeAssistantThoughtFragments(incoming.map(cloneCachedMessage)),
+      );
       return state.runtime.domMessageCache;
     }
 
@@ -360,7 +444,9 @@
 
     insertPending();
 
-    state.runtime.domMessageCache = reindexMessages(result.map(cloneCachedMessage));
+    state.runtime.domMessageCache = reindexMessages(
+      mergeAssistantThoughtFragments(result.map(cloneCachedMessage)),
+    );
     return state.runtime.domMessageCache;
   }
 
