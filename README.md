@@ -1,57 +1,73 @@
 # ChronoChat
 
-Navigate long ChatGPT conversations with clarity.
+A local-first browser extension that adds a searchable conversation map to ChatGPT.
+
+ChronoChat is built for long ChatGPT threads: research sessions, project work, debugging logs, study notes, planning chats, and any conversation where scrolling back manually becomes painful. It adds a side panel inside ChatGPT so you can scan the whole thread, filter messages, search, jump to a specific turn, and export the conversation without sending your data anywhere.
 
 ![ChronoChat banner](assets/github/chronochat-banner.svg)
 
-![ChronoChat HyperFrames promo cover](assets/promo/chronochat-hyperframes-cover.png)
+![ChronoChat product preview](assets/promo/chronochat-product-preview.png)
 
-Watch the 12-second HyperFrames product promo: [chronochat-hyperframes-promo.mp4](assets/promo/chronochat-hyperframes-promo.mp4)
+## What It Does
 
-## Promo Stills
+ChronoChat turns a long ChatGPT conversation into a navigable outline.
 
-<p>
-  <img src="assets/promo/chronochat-github-hero.png" alt="ChronoChat GitHub hero" width="520" />
-  <img src="assets/promo/chronochat-social-wide.png" alt="ChronoChat wide social still" width="520" />
-</p>
+- See a compact list of all turns in the current chat
+- Filter the list by `All`, `You`, or `AI`
+- Search across the conversation and jump straight to the matching message
+- Move through messages with keyboard shortcuts
+- Export the full conversation as `JSON`, `CSV`, `Markdown`, `DOCX`, or `PDF`
+- Keep everything local: no backend, no analytics, no remote runtime services
 
-<p>
-  <img src="assets/promo/chronochat-social-square.png" alt="ChronoChat square social still" width="320" />
-  <img src="assets/promo/chronochat-social-story.png" alt="ChronoChat story social still" width="180" />
-</p>
+## Who It Is For
 
-<p>
-  <img src="assets/promo/browser-captures/chronochat-real-harness-open.png" alt="ChronoChat browser capture with sidebar open" width="520" />
-  <img src="assets/promo/browser-captures/chronochat-real-sidebar.png" alt="ChronoChat sidebar capture" width="180" />
-</p>
+ChronoChat is useful when ChatGPT becomes part of your actual workflow instead of a one-off question box:
 
-ChronoChat is a Manifest V3 browser extension for ChatGPT that adds a native-feeling conversation map on the right side of the page. It helps you scan long threads, filter turns, search quickly, and jump back to the exact part of the conversation you need.
+- Students reviewing long tutoring or exam-prep chats
+- Developers navigating debugging sessions and code explanations
+- Researchers collecting sources, arguments, and summaries
+- Consultants and operators using ChatGPT for planning, writing, and analysis
+- Anyone who wants a cleaner way to revisit earlier parts of a long conversation
 
-## Why ChronoChat
+## Product Principles
 
-- Built for long ChatGPT sessions that become hard to navigate
-- Designed to feel visually coherent with ChatGPT instead of competing with it
-- Keeps everything local: no backend, no analytics, no remote runtime assets
+- Native-feeling: the UI is designed to sit next to ChatGPT, not fight it
+- Local-first: message content stays in the browser
+- Practical over flashy: fast navigation, readable previews, dependable export
+- Resilient: selector-based DOM parsing with fallbacks for ChatGPT markup changes
 
 ## Features
 
-- Right-side conversation map for the current chat
-- Filters for `All`, `You`, and `AI`
-- Text search across the current conversation
-- Export Pro v1 for the full conversation as `JSON`, `CSV`, `Markdown`, `DOCX`, or `PDF`, preserving semantic message blocks (`heading`, `paragraph`, `list`, `quote`, `code`, `image`)
-- Keyboard navigation:
-  - `Ctrl/Cmd + J`: open or close ChronoChat
-  - `/`: focus search
-  - `j` / `k`: move selection
-  - `Enter`: jump to the selected message
-  - `Esc`: close the sidebar or clear search focus state
-- Theme-aware UI with a ChatGPT-adjacent visual language
+### Conversation Map
+
+ChronoChat adds a right-side panel with a compact preview of every detected message in the current ChatGPT thread. Each item can be clicked to jump back to that exact part of the conversation.
+
+### Search and Filters
+
+Use the search box to find a word or phrase inside the current conversation. Filters let you narrow the map to your messages, assistant messages, or the full thread.
+
+### Keyboard Navigation
+
+- `Ctrl/Cmd + J`: open or close ChronoChat
+- `/`: focus search
+- `j` / `k`: move selection
+- `Enter`: jump to the selected message
+- `Esc`: close the sidebar or clear search focus state
+
+### Export
+
+Export Pro v1 saves the full conversation as `JSON`, `CSV`, `Markdown`, `DOCX`, or `PDF`. The exporter preserves semantic message blocks where possible, including headings, paragraphs, lists, quotes, code, and images.
+
+### Attachments and Media
+
+ChronoChat detects attachment-only messages and recoverable inline images so the conversation map and export do not collapse when a turn contains files instead of plain text.
 
 ## Privacy
 
-- No message content is sent to external services
+- No backend server
 - No tracking or analytics
 - No remote fonts or third-party runtime requests
+- No message content is sent to external services by ChronoChat
 
 ## Supported Hosts
 
@@ -61,6 +77,17 @@ ChronoChat is a Manifest V3 browser extension for ChatGPT that adds a native-fee
 ## Installation
 
 ### Chrome / Chromium
+
+#### From a Release Zip
+
+1. Download the latest `chronochat-extension.zip` from the GitHub Releases page
+2. Extract the zip
+3. Open `chrome://extensions/`
+4. Enable Developer Mode
+5. Click `Load unpacked`
+6. Select the extracted extension folder
+
+#### From Source
 
 1. Clone this repository
 2. Install dependencies:
@@ -79,6 +106,14 @@ npm run build
 5. Enable Developer Mode
 6. Click `Load unpacked`
 7. Select this project directory
+
+To create a distributable extension zip from source:
+
+```bash
+npm run package:extension
+```
+
+The package is written to `packages/chronochat-extension.zip`.
 
 ### Firefox
 
