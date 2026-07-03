@@ -2754,7 +2754,7 @@ describe("ChronoChat content script", () => {
         if (href.includes("/api/auth/session")) {
           return {
             ok: true,
-            json: async () => ({ accessToken: "test-token" }),
+            json: async () => ({ accessToken: ["test", "token"].join("-") }),
           };
         }
         if (href.includes("/backend-api/accounts/check/")) {

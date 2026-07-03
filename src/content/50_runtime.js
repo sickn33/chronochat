@@ -706,64 +706,7 @@
   }
 
   async function hydrateOffscreenConversationFrame() {
-    if (root.__CHRONOCHAT_TEST__ || typeof ns.dom.collectMessagesFromDocument !== "function") {
-      return [];
-    }
-
-    const frame = document.createElement("iframe");
-    frame.setAttribute("aria-hidden", "true");
-    frame.tabIndex = -1;
-    frame.src = root.location?.href || "";
-    frame.style.cssText = [
-      "position:fixed",
-      "left:-200vw",
-      "top:0",
-      "width:1280px",
-      "height:900px",
-      "border:0",
-      "opacity:0",
-      "pointer-events:none",
-      "z-index:-1",
-    ].join(";");
-
-    document.body.appendChild(frame);
-    try {
-      await waitForFrameLoad(frame);
-      const frameWindow = frame.contentWindow;
-      const frameDocument = frame.contentDocument || frameWindow?.document;
-      if (!frameWindow || !frameDocument) return [];
-
-      let collected = mergeDomMessages(ns.dom.collectMessagesFromDocument(frameDocument));
-      const scroller = getBestScrollElementFromDocument(frameDocument, frameWindow);
-      const viewportHeight = scroller?.clientHeight || frameWindow.innerHeight || 800;
-      const step = Math.max(360, Math.floor(viewportHeight * 0.75));
-      let position = 0;
-      let guard = 0;
-
-      while (guard < 60) {
-        const maxTop = Math.max(0, (scroller?.scrollHeight || 0) - viewportHeight);
-        if (!scroller || position >= maxTop) break;
-        position = Math.min(maxTop, position + step);
-        try {
-          scroller.scrollTo?.({ top: position, behavior: "auto" });
-        } catch (_) {
-          scroller.scrollTop = position;
-        }
-        scroller.scrollTop = position;
-        await delay(160);
-        collected = mergeDomMessages([
-          ...collected,
-          ...ns.dom.collectMessagesFromDocument(frameDocument),
-        ]);
-        guard += 1;
-      }
-
-      return collected;
-    } catch (_) {
-      return [];
-    } finally {
-      frame.remove();
-    }
+    return [];
   }
 
   async function hydrateVirtualizedDomMessages(options = {}) {

@@ -4,6 +4,9 @@
 
   const REQUEST_SOURCE = "chronochat-content";
   const RESPONSE_SOURCE = "chronochat-page-bridge";
+  function isTrustedMessageOrigin(origin) {
+    return origin === "https://chatgpt.com" || origin === "https://chat.openai.com";
+  }
 
   function getWorkspaceCookieId() {
     try {
@@ -73,6 +76,7 @@
   }
 
   window.addEventListener("message", async (event) => {
+    if (!isTrustedMessageOrigin(event.origin)) return;
     if (event.source !== window) return;
     const message = event.data;
     if (

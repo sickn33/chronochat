@@ -6,6 +6,9 @@
     window.__CHRONOCHAT_PAGE_BRIDGE__ = true;
     const REQUEST_SOURCE = "chronochat-content";
     const RESPONSE_SOURCE = "chronochat-page-bridge";
+    function isTrustedMessageOrigin(origin) {
+      return origin === "https://chatgpt.com" || origin === "https://chat.openai.com";
+    }
     function getWorkspaceCookieId() {
       try {
         return document.cookie.split(";").map((part) => part.trim()).find((part) => /^oai-did-workspace=/.test(part))?.split("=").slice(1).join("=") || "";
@@ -60,6 +63,7 @@
       return { ok: true, status: response.status, payload: await response.json() };
     }
     window.addEventListener("message", async (event) => {
+      if (!isTrustedMessageOrigin(event.origin)) return;
       if (event.source !== window) return;
       const message = event.data;
       if (!message || message.source !== REQUEST_SOURCE || message.type !== "fetchConversation" || !message.requestId || !message.conversationId) {
